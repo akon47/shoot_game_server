@@ -1,9 +1,14 @@
-﻿var https = require('http');
+﻿var https = require('https');
 var fs   = require('fs');
 var WebSocketServer = require('websocket').server;
 
+var https_options = {
+ ca: fs.readFileSync("/etc/letsencrypt/live/www.kimhwan.kr/fullchain.pem"),
+ key: fs.readFileSync("/etc/letsencrypt/live/www.kimhwan.kr/privkey.pem"),
+ cert: fs.readFileSync("/etc/letsencrypt/live/www.kimhwan.kr/fullchain.pem")
+};
 
-var httpsServer = https.createServer(function(request, response) {
+var httpsServer = https.createServer(https_options, function(request, response) {
     console.log((new Date()) + ' Received request for ' + request.url);
     response.writeHead(404);
     response.end();

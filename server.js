@@ -1,51 +1,18 @@
-﻿var https = require('https');
-var fs   = require('fs');
-var WebSocketServer = require('websocket').server;
-
-var https_options = {
- ca: fs.readFileSync("/etc/letsencrypt/live/www.kimhwan.kr/fullchain.pem"),
- key: fs.readFileSync("/etc/letsencrypt/live/www.kimhwan.kr/privkey.pem"),
- cert: fs.readFileSync("/etc/letsencrypt/live/www.kimhwan.kr/fullchain.pem")
-};
-
-var httpsServer = https.createServer(https_options, function(request, response) {
-    console.log((new Date()) + ' Received request for ' + request.url);
-    response.writeHead(404);
-    response.end();
-});
-
-//포트설정
-httpsServer.listen(8081);
-
-//ws 모듈이 내부적으로 없을경우 설치
-var WebSocketServer = require('ws').Server;
+﻿const { shootIntersection } = require('./utils.js');
 
 //웹소켓 서버 생성
-var wss = new WebSocketServer({
-    server: httpsServer,
-    // You should not use autoAcceptConnections for production
-    // applications, as it defeats all standard cross-origin protection
-    // facilities built into the protocol and the browser.  You should
-    // *always* verify the connection's origin and decide whether or not
-    // to accept it.
-    autoAcceptConnections: false
-});
-
-function originIsAllowed(origin) {
-  // put logic here to detect whether the specified origin is allowed.
-  return true;
-}
+const wss = require('./websocket-server')(8081);
 
 var pathFinding = require('pathfinding');
 var mapData = require("../../html/shoot_game/map_office.js").mapData;
 var mapGrid = new pathFinding.Grid(mapData.width, mapData.height);
 var walkablePositions = [];
 
-for(var y = 0; y < mapData.height; y++) {
-    for(var x = 0; x < mapData.width; x++) {
+for (var y = 0; y < mapData.height; y++) {
+    for (var x = 0; x < mapData.width; x++) {
         const walkable = !mapData.wall_tiles.includes(mapData.data[(y * mapData.width) + x]);
         mapGrid.setWalkableAt(x, y, walkable);
-        if(walkable) {
+        if (walkable) {
             walkablePositions.push({ x: x, y: y });
         }
     }
@@ -58,7 +25,7 @@ function createSegments(hitBoxes) {
     function getSlope(segment) {
         const dx = (segment.b.x - segment.a.x);
         const dy = (segment.b.y - segment.a.y);
-        if(dx === 0) {
+        if (dx === 0) {
             return undefined;
         } else {
             return (dy / dx);
@@ -66,11 +33,11 @@ function createSegments(hitBoxes) {
     }
 
     var segments = [];
-    if(hitBoxes) {
+    if (hitBoxes) {
         var tempSegments = [];
-        for(var i = 0; i < hitBoxes.length; i++) {
+        for (var i = 0; i < hitBoxes.length; i++) {
             const hitBox = hitBoxes[i];
-            if(hitBox) {
+            if (hitBox) {
                 tempSegments.push(
                     { a: { x: hitBox.left, y: hitBox.top }, b: { x: hitBox.right, y: hitBox.top }, valid: true },
                     { a: { x: hitBox.right, y: hitBox.top }, b: { x: hitBox.right, y: hitBox.bottom }, valid: true },
@@ -80,8 +47,8 @@ function createSegments(hitBoxes) {
             }
         }
 
-        for(var i = 0; i < tempSegments.length; i++) {
-            if(tempSegments[i].valid) {
+        for (var i = 0; i < tempSegments.length; i++) {
+            if (tempSegments[i].valid) {
                 const slopeSrc = getSlope(tempSegments[i]);
                 const interceptYSrc = (tempSegments[i].a.y - (tempSegments[i].a.x * slopeSrc));
                 const leftSrc = Math.min(tempSegments[i].a.x, tempSegments[i].b.x);
@@ -89,23 +56,23 @@ function createSegments(hitBoxes) {
                 const rightSrc = Math.max(tempSegments[i].a.x, tempSegments[i].b.x);
                 const bottomSrc = Math.max(tempSegments[i].a.y, tempSegments[i].b.y);
 
-                for(var j = 0; j < tempSegments.length; j++) {
-                    if(i !== j && tempSegments[j].valid) {
+                for (var j = 0; j < tempSegments.length; j++) {
+                    if (i !== j && tempSegments[j].valid) {
                         // tempSegments[i] 안에 tempSegments[j] 가 포함되는지 검사 후 valid 체크
                         const slopeDest = getSlope(tempSegments[j]);
-                        if(slopeSrc === slopeDest) {
+                        if (slopeSrc === slopeDest) {
                             const interceptYDest = (tempSegments[j].a.y - (tempSegments[j].a.x * slopeSrc));
-                            if(interceptYSrc === interceptYDest) {
+                            if (interceptYSrc === interceptYDest) {
                                 const leftDest = Math.min(tempSegments[j].a.x, tempSegments[j].b.x);
                                 const topDest = Math.min(tempSegments[j].a.y, tempSegments[j].b.y);
                                 const rightDest = Math.max(tempSegments[j].a.x, tempSegments[j].b.x);
                                 const bottomDest = Math.max(tempSegments[j].a.y, tempSegments[j].b.y);
 
-                                if(leftSrc <= leftDest && rightSrc >= leftDest &&
+                                if (leftSrc <= leftDest && rightSrc >= leftDest &&
                                     leftSrc <= rightDest && rightSrc >= rightDest &&
                                     topSrc <= topDest && topSrc >= topDest &&
                                     bottomSrc <= bottomDest && bottomSrc >= bottomDest) {
-                                    
+
                                     tempSegments[j].valid = false;
                                 }
                             }
@@ -115,8 +82,8 @@ function createSegments(hitBoxes) {
             }
         }
 
-        for(var i = 0; i < tempSegments.length; i++) {
-            if(tempSegments[i].valid) {
+        for (var i = 0; i < tempSegments.length; i++) {
+            if (tempSegments[i].valid) {
                 segments.push(tempSegments[i]);
             }
         }
@@ -203,15 +170,6 @@ function findMapHitBoxes() {
     return result;
 }
 
-
-
-
-
-
-
-
-
-
 var pathFinder = new pathFinding.AStarFinder({
     allowDiagonal: true,
     dontCrossCorners: true
@@ -230,154 +188,152 @@ var aiIdCount = 0;
 
 var npcIdCount = 0;
 var npcs = [];
-var objects = [];
 
 wss.on('connection', function connection(ws) {
 
-	var id = ('USER_' + connectionCount++);
+    var id = ('USER_' + connectionCount++);
 
-	console.log('connection is established : ' + id);
-	clients[id] = [];
-	clients[id].ws = ws;
-	clients[id].id = id;
-	clients[id].x = 0;
+    console.log('connection is established : ' + id);
+    clients[id] = [];
+    clients[id].ws = ws;
+    clients[id].id = id;
+    clients[id].x = 0;
     clients[id].y = 0;
     clients[id].width = 32;
     clients[id].height = 32;
-	clients[id].speedX = 0;
-	clients[id].speedY = 0;
-	clients[id].name = '';
-	clients[id].direction = 0;
-	clients[id].character = 0;
+    clients[id].speedX = 0;
+    clients[id].speedY = 0;
+    clients[id].name = '';
+    clients[id].direction = 0;
+    clients[id].character = 0;
     clients[id].weapon = '';
     clients[id].kill = 0;
     clients[id].death = 0;
     clients[id].hp = 100.0;
-	clients.push(id);
+    clients.push(id);
 
-	ws.send(JSON.stringify({type: 'id', data: id}));
-	//sendAll('user_connected', { id: id });
+    ws.send(JSON.stringify({ type: 'id', data: id }));
 
-	ws.on('message', function incoming(message) {
-		var msg = JSON.parse(message);
-		//console.log('ID: ' + id + ' -> ' + message);
-		switch(msg.type) {
+    ws.on('message', function incoming(message) {
+        var msg = JSON.parse(message);
+        //console.log('ID: ' + id + ' -> ' + message);
+        switch (msg.type) {
             case 'echo':
                 ws.send(message);
                 break;
-			case 'user_init':
-				clients[id].x = msg.data.x;
-				clients[id].y = msg.data.y;
-				clients[id].speedX = msg.data.speedX;
-				clients[id].speedY = msg.data.speedY;
-				clients[id].name = msg.data.name;
-				clients[id].direction = msg.data.direction;
-				clients[id].character = msg.data.character;
+            case 'user_init':
+                clients[id].x = msg.data.x;
+                clients[id].y = msg.data.y;
+                clients[id].speedX = msg.data.speedX;
+                clients[id].speedY = msg.data.speedY;
+                clients[id].name = msg.data.name;
+                clients[id].direction = msg.data.direction;
+                clients[id].character = msg.data.character;
                 clients[id].weapon = msg.data.weapon;
                 clients[id].hp = 100.0;
-				sendAll('user_connected',
-						{
-							id: id,
-							name: msg.data.name,
-							x: msg.data.x, y: msg.data.y,
-							speedX: msg.data.speedX, speedY: msg.data.speedY,
-							direction: msg.data.direction,
-							character: msg.data.character,
-                            weapon: msg.data.weapon,
-                            kill: clients[id].kill, death: clients[id].death,
-                            hp: 100.0
-						});
+                sendAll('user_connected',
+                    {
+                        id: id,
+                        name: msg.data.name,
+                        x: msg.data.x, y: msg.data.y,
+                        speedX: msg.data.speedX, speedY: msg.data.speedY,
+                        direction: msg.data.direction,
+                        character: msg.data.character,
+                        weapon: msg.data.weapon,
+                        kill: clients[id].kill, death: clients[id].death,
+                        hp: 100.0
+                    });
 
-				for(var i = 0; i < clients.length; i++) {
-					const client = clients[clients[i]];
-					if(client !== undefined) {
-						ws.send(JSON.stringify(
-						{
-							type: 'user_connected',
-							data:
-							{
-								id: client.id,
-								name: client.name,
-								x: client.x, y: client.y,
-								speedX: client.speedX, speedY: client.speedY,
-								direction: client.direction, character: client.character,
-								weapon: client.weapon, hp: client.hp, kill: client.kill, death: client.death
-							}
-						}));
-					}
-                }
-
-                for(var i = 0; i < aiPlayers.length; i++) {
-					const aiPlayer = aiPlayers[aiPlayers[i]];
-					if(aiPlayer !== undefined) {
-						ws.send(JSON.stringify(
-						{
-							type: 'user_connected',
-							data:
-							{
-								id: aiPlayer.id,
-								name: aiPlayer.name,
-								x: aiPlayer.x, y: aiPlayer.y,
-								speedX: aiPlayer.speedX, speedY: aiPlayer.speedY,
-								direction: aiPlayer.direction, character: aiPlayer.character,
-								weapon: aiPlayer.weapon, hp: aiPlayer.hp, kill: aiPlayer.kill, death: aiPlayer.death
-							}
-						}));
-					}
-                }
-                
-                for(var i = 0; i < npcs.length; i++) {
-                    const npc = npcs[npcs[i]];
-                    if(npc !== undefined) {
+                for (var i = 0; i < clients.length; i++) {
+                    const client = clients[clients[i]];
+                    if (client !== undefined) {
                         ws.send(JSON.stringify(
-                        {
-                            type: 'npc_created',
-                            data:
                             {
-                                id: npc.id,
-                                x: npc.x, y: npc.y,
-                                destinationX: npc.destinationX, destinationY: npc.destinationY,
-                                speed: npc.speed, type: npc.type, hp: 100.0
-                            }
-                        }));
+                                type: 'user_connected',
+                                data:
+                                {
+                                    id: client.id,
+                                    name: client.name,
+                                    x: client.x, y: client.y,
+                                    speedX: client.speedX, speedY: client.speedY,
+                                    direction: client.direction, character: client.character,
+                                    weapon: client.weapon, hp: client.hp, kill: client.kill, death: client.death
+                                }
+                            }));
                     }
                 }
-			
+
+                for (var i = 0; i < aiPlayers.length; i++) {
+                    const aiPlayer = aiPlayers[aiPlayers[i]];
+                    if (aiPlayer !== undefined) {
+                        ws.send(JSON.stringify(
+                            {
+                                type: 'user_connected',
+                                data:
+                                {
+                                    id: aiPlayer.id,
+                                    name: aiPlayer.name,
+                                    x: aiPlayer.x, y: aiPlayer.y,
+                                    speedX: aiPlayer.speedX, speedY: aiPlayer.speedY,
+                                    direction: aiPlayer.direction, character: aiPlayer.character,
+                                    weapon: aiPlayer.weapon, hp: aiPlayer.hp, kill: aiPlayer.kill, death: aiPlayer.death
+                                }
+                            }));
+                    }
+                }
+
+                for (var i = 0; i < npcs.length; i++) {
+                    const npc = npcs[npcs[i]];
+                    if (npc !== undefined) {
+                        ws.send(JSON.stringify(
+                            {
+                                type: 'npc_created',
+                                data:
+                                {
+                                    id: npc.id,
+                                    x: npc.x, y: npc.y,
+                                    destinationX: npc.destinationX, destinationY: npc.destinationY,
+                                    speed: npc.speed, type: npc.type, hp: 100.0
+                                }
+                            }));
+                    }
+                }
+
                 break;
-			case 'user_position':
-				clients[id].x = msg.data.x;
+            case 'user_position':
+                clients[id].x = msg.data.x;
                 clients[id].y = msg.data.y;
-                if(clients[id].speedX === 0 && clients[id].speedY === 0) {
+                if (clients[id].speedX === 0 && clients[id].speedY === 0) {
                     sendAll('user_position', { id: id, x: msg.data.x, y: msg.data.y });
                 }
-				break;
-			case 'user_speed':
-				clients[id].speedX = msg.data.speedX;
-				clients[id].speedY = msg.data.speedY;
-				sendAll('user_speed', { id: id, speedX: msg.data.speedX, speedY: msg.data.speedY });
-				break;
-			case 'user_name':
-				clients[id].name = msg.data.name;
-				sendAll('user_name', { id: id, name: msg.data.name });
-				break;
-			case 'user_chat':
-				if(msg.data.chat.charAt(0) === '/') {
-					runCommand(msg.data.chat.substring(1));
-				} else {
-					sendAll('user_chat', { id: id, chat: msg.data.chat });
-				}
-				break;
-			case 'user_direction':
-				clients[id].direction= msg.data.direction;
-				sendAll('user_direction', { id: id, direction: msg.data.direction });
-				break;
-			case 'user_character':
-				clients[id].character= msg.data.character;
-				sendAll('user_character', { id: id, character: msg.data.character });
-				break;
-			case 'user_weapon':
-				clients[id].weapon = msg.data.weapon;
-				sendAll('user_weapon', { id: id, weapon: msg.data.weapon });
+                break;
+            case 'user_speed':
+                clients[id].speedX = msg.data.speedX;
+                clients[id].speedY = msg.data.speedY;
+                sendAll('user_speed', { id: id, speedX: msg.data.speedX, speedY: msg.data.speedY });
+                break;
+            case 'user_name':
+                clients[id].name = msg.data.name;
+                sendAll('user_name', { id: id, name: msg.data.name });
+                break;
+            case 'user_chat':
+                if (msg.data.chat.charAt(0) === '/') {
+                    runCommand(msg.data.chat.substring(1));
+                } else {
+                    sendAll('user_chat', { id: id, chat: msg.data.chat });
+                }
+                break;
+            case 'user_direction':
+                clients[id].direction = msg.data.direction;
+                sendAll('user_direction', { id: id, direction: msg.data.direction });
+                break;
+            case 'user_character':
+                clients[id].character = msg.data.character;
+                sendAll('user_character', { id: id, character: msg.data.character });
+                break;
+            case 'user_weapon':
+                clients[id].weapon = msg.data.weapon;
+                sendAll('user_weapon', { id: id, weapon: msg.data.weapon });
                 break;
             case 'user_shoot':
                 // 총알 충돌처리 필요
@@ -385,20 +341,20 @@ wss.on('connection', function connection(ws) {
                 shootProcess(id, msg.data.weapon, 'user', msg.data.muzzlePoint.x, msg.data.muzzlePoint.y, msg.data.targetPoint.x, msg.data.targetPoint.y);
                 sendAll('user_shoot', { id: id, weapon: msg.data.weapon, muzzlePoint: msg.data.muzzlePoint, targetPoint: msg.data.targetPoint, angle: msg.data.angle })
                 break;
-			case 'user_disconnected':
-				sendAll('user_disconnected', { id: id });
-				break;
-		}
-	});
+            case 'user_disconnected':
+                sendAll('user_disconnected', { id: id });
+                break;
+        }
+    });
 
-	ws.on('close', function disconnection() {
-		console.log('user ' + id + ' disconnected');
-		delete clients[id];
-		sendAll('user_count', --count);
-		sendAll('user_disconnected', { id: id });
-	});
+    ws.on('close', function disconnection() {
+        console.log('user ' + id + ' disconnected');
+        delete clients[id];
+        sendAll('user_count', --count);
+        sendAll('user_disconnected', { id: id });
+    });
 
-	sendAll('user_count', ++count);
+    sendAll('user_count', ++count);
 });
 
 function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) {
@@ -465,7 +421,6 @@ function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) 
             //console.log('shoot_hit: ' + hitObject.id);
 
             if (hitObject.hp) {
-
                 switch (weapon) {
                     case 'handgun':
                         hitObject.hp -= 10;
@@ -490,10 +445,10 @@ function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) 
                             sendAll('user_die', { id: hitObject.id, reason: { provider: provider, provider_id: id, weapon: weapon } });
                             console.log('user_die: ' + hitObject.id);
 
-                            if(provider === 'user' && clients[id]) {
+                            if (provider === 'user' && clients[id]) {
                                 clients[id].kill++;
                                 sendAll('user_kill', { id: id, kill: clients[id].kill });
-                            } else if(provider === 'ai' && aiPlayers[aiPlayers[id]]) {
+                            } else if (provider === 'ai' && aiPlayers[aiPlayers[id]]) {
                                 aiPlayers[id].kill++;
                                 aiPlayers[id].isPathMovingActive = false;
                                 aiPlayers[id].fsm.state = 'roam';
@@ -501,20 +456,20 @@ function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) 
                             }
                             hitObject.death++;
                             sendAll('user_death', { id: hitObject.id, death: hitObject.death });
-                            
+
                             break;
                         case 'ai':
                             sendAll('user_die', { id: hitObject.id, reason: { provider: provider, provider_id: id, weapon: weapon } });
                             console.log('ai_die: ' + hitObject.id);
 
-                            if(provider === 'user' && clients[id]) {
+                            if (provider === 'user' && clients[id]) {
                                 clients[id].kill++;
                                 sendAll('user_kill', { id: id, kill: clients[id].kill });
-                            } else if(provider === 'ai' && aiPlayers[id]) {
+                            } else if (provider === 'ai' && aiPlayers[id]) {
                                 aiPlayers[id].kill++;
                                 aiPlayers[id].isPathMovingActive = false;
                                 aiPlayers[id].fsm.state = 'roam';
-                                
+
                                 sendAll('user_kill', { id: id, kill: aiPlayers[id].kill });
                             }
 
@@ -559,27 +514,27 @@ function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) 
 }
 
 function sendAll(type, data) {
-	var msg = {
-		type: type,
-		data: data
-	};
+    var msg = {
+        type: type,
+        data: data
+    };
 
-	for (var j = 0; j < clients.length; j++) {
-		const client = clients[clients[j]];
-		if(client) {
-			client.ws.send(JSON.stringify(msg));
-		}
-	}
+    for (var j = 0; j < clients.length; j++) {
+        const client = clients[clients[j]];
+        if (client) {
+            client.ws.send(JSON.stringify(msg));
+        }
+    }
 }
 
 function runCommand(command) {
     console.log('command: ' + command);
 
     var args = command.split(' ');
-    if(args && args.length > 0) {
-        switch(args[0]) {
+    if (args && args.length > 0) {
+        switch (args[0]) {
             case 'addnpc':
-                if(args.length > 2) {
+                if (args.length > 2) {
                     var x = parseInt(args[1]);
                     var y = parseInt(args[2]);
                     sendAll('user_chat', { id: 'server', chat: 'create npc (' + args[1] + ', ' + args[2] + ')' });
@@ -596,35 +551,35 @@ function runCommand(command) {
                     npcs[id].hp = 100.0;
                     npcs.push(id);
                     sendAll('npc_created',
-					{
-						id: npcs[id].id,
-                        x: npcs[id].x, y: npcs[id].y,
-                        destinationX: npcs[id].destinationX, destinationY: npcs[id].destinationY,
-						speed: npcs[id].speed, type: npcs[id].type, hp: npcs[id].hp
-					});
+                        {
+                            id: npcs[id].id,
+                            x: npcs[id].x, y: npcs[id].y,
+                            destinationX: npcs[id].destinationX, destinationY: npcs[id].destinationY,
+                            speed: npcs[id].speed, type: npcs[id].type, hp: npcs[id].hp
+                        });
                 }
                 break;
             case 'deletenpc':
-                if(args.length > 1) {
+                if (args.length > 1) {
                     var id = args[1];
-                    if(id === 'all') {
-                        for(var i = 0; i < npcs.length; i++) {
-                            if(npcs[npcs[i]]) {
+                    if (id === 'all') {
+                        for (var i = 0; i < npcs.length; i++) {
+                            if (npcs[npcs[i]]) {
                                 delete npcs[npcs[i]];
                                 sendAll('npc_deleted', { id: npcs[i] });
                             }
                         }
                     }
-                    else if(npcs[id]) {
+                    else if (npcs[id]) {
                         delete npcs[id];
                         sendAll('npc_deleted', { id: id });
                     }
                 }
                 break;
             case 'movenpc':
-                if(args.length > 3) {
+                if (args.length > 3) {
                     var id = args[1];
-                    if(npcs[id]) {
+                    if (npcs[id]) {
                         var destX = parseInt(args[2]);
                         var destY = parseInt(args[3]);
                         npcs[id].destinationX = destX;
@@ -640,7 +595,7 @@ function runCommand(command) {
 function getDistance(x1, y1, x2, y2) {
     const dX = (x2 - x1);
     const dY = (y2 - y1);
-    return Math.sqrt(Math.abs(dX*dX) + Math.abs(dY*dY));
+    return Math.sqrt(Math.abs(dX * dX) + Math.abs(dY * dY));
 }
 
 function getWalkableRandomPosition() {
@@ -649,13 +604,12 @@ function getWalkableRandomPosition() {
 }
 
 function setRandomDestinationPath(npc) {
-    if(npc) {
+    if (npc) {
         const target = walkablePositions[Math.floor(Math.random() * walkablePositions.length) % walkablePositions.length];
-        var path = pathFinding.Util.compressPath(findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), target.x, target.y));
-        //var path = pathFinding.Util.smoothenPath(mapGrid.clone(), findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), target.x, target.y));
-        
+        const path = pathFinding.Util.compressPath(findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), target.x, target.y));
+
         npc.movingPath = [];
-        for(var i = 0; i < path.length; i++) {
+        for (var i = 0; i < path.length; i++) {
             npc.movingPath.push({
                 x: ((path[i][0] * mapData.tile_width)),
                 y: ((path[i][1] * mapData.tile_height))
@@ -664,21 +618,20 @@ function setRandomDestinationPath(npc) {
         npc.currentMovingPathIndex = 0;
         npc.isPathMovingActive = true;
 
-        if(npc.movingPath.length > 0) {
+        if (npc.movingPath.length > 0) {
             npc.destinationX = npc.movingPath[0].x;
             npc.destinationY = npc.movingPath[0].y;
         }
-        
+
     }
 }
 
 function setDestinationPath(npc, target) {
-    if(npc && target) {
-        var path = pathFinding.Util.compressPath(findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), Math.floor(target.x / mapData.tile_width), Math.floor(target.y / mapData.tile_height)));
-        //var path = pathFinding.Util.smoothenPath(mapGrid.clone(), findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), target.x, target.y));
-        
+    if (npc && target) {
+        const path = pathFinding.Util.compressPath(findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), Math.floor(target.x / mapData.tile_width), Math.floor(target.y / mapData.tile_height)));
+
         npc.movingPath = [];
-        for(var i = 1; i < path.length; i++) {
+        for (var i = 1; i < path.length; i++) {
             npc.movingPath.push({
                 x: ((path[i][0] * mapData.tile_width)),
                 y: ((path[i][1] * mapData.tile_height))
@@ -687,11 +640,11 @@ function setDestinationPath(npc, target) {
         npc.currentMovingPathIndex = 0;
         npc.isPathMovingActive = true;
 
-        if(npc.movingPath.length > 0) {
+        if (npc.movingPath.length > 0) {
             npc.destinationX = npc.movingPath[0].x;
             npc.destinationY = npc.movingPath[0].y;
         }
-        
+
     }
 }
 
@@ -710,16 +663,16 @@ function createNpc(x, y, destX, destY, speed) {
     npcs[id].hp = 100.0;
     npcs.push(id);
     sendAll('npc_created',
-    {
-        id: npcs[id].id,
-        x: npcs[id].x, y: npcs[id].y,
-        destinationX: npcs[id].destinationX, destinationY: npcs[id].destinationY,
-        speed: npcs[id].speed, type: npcs[id].type, hp: npcs[id].hp
-    });
+        {
+            id: npcs[id].id,
+            x: npcs[id].x, y: npcs[id].y,
+            destinationX: npcs[id].destinationX, destinationY: npcs[id].destinationY,
+            speed: npcs[id].speed, type: npcs[id].type, hp: npcs[id].hp
+        });
 }
 
 function addRandomNpcs(count) {
-    for(var i = 0; i < count; i++) {
+    for (var i = 0; i < count; i++) {
         const position = getWalkableRandomPosition();
         createNpc(position.x, position.y);
     }
@@ -729,19 +682,19 @@ function createAiPlayer(name) {
     const position = getWalkableRandomPosition();
 
     var id = ('AI_' + aiIdCount++);
-	aiPlayers[id] = [];
-	aiPlayers[id].id = id;
-	aiPlayers[id].x = position.x;
+    aiPlayers[id] = [];
+    aiPlayers[id].id = id;
+    aiPlayers[id].x = position.x;
     aiPlayers[id].y = position.y;
     aiPlayers[id].width = 32;
     aiPlayers[id].height = 32;
-	aiPlayers[id].speedX = 0;
+    aiPlayers[id].speedX = 0;
     aiPlayers[id].speedY = 0;
     aiPlayers[id].destinationX = aiPlayers[id].x;
     aiPlayers[id].destinationY = aiPlayers[id].y;
-	aiPlayers[id].name = (name ? name : id);
-	aiPlayers[id].direction = 0;
-	aiPlayers[id].character = 0;
+    aiPlayers[id].name = (name ? name : id);
+    aiPlayers[id].direction = 0;
+    aiPlayers[id].character = 0;
     aiPlayers[id].weapon = 'rifle';
     aiPlayers[id].hp = 100.0;
     aiPlayers[id].kill = 0;
@@ -749,7 +702,7 @@ function createAiPlayer(name) {
     aiPlayers[id].fsm = [];
     aiPlayers[id].fsm.state = 'roam'; // chase attack
     aiPlayers.push(id);
-    
+
     sendAll('user_connected',
         {
             id: id,
@@ -767,41 +720,6 @@ function createAiPlayer(name) {
     }, 1000 / 60);
 }
 
-function addAiPlayers(count) {
-    for(var i = 0; i < count; i++) {
-        createAiPlayer();
-    }
-}
-
-function shootIntersection(p1, p2, circleX, circleY, radius) {
-    const circle = { centerX: circleX, centerY: circleY, radius: radius };
-    var dp = { x: p2.x - p1.x, y: p2.y - p1.y };
-    var a, b, c, bb4ac, mu1, mu2;
-
-    a = dp.x * dp.x + dp.y * dp.y;
-    b = 2 * (dp.x * (p1.x - circle.centerX) + dp.y * (p1.y - circle.centerY));
-    c = circle.centerX * circle.centerX + circle.centerY * circle.centerY;
-    c += p1.x * p1.x + p1.y * p1.y;
-    c -= 2 * (circle.centerX * p1.x + circle.centerY * p1.y);
-    c -= circle.radius * circle.radius;
-    bb4ac = b * b - 4 * a * c; 
-    if (Math.abs(a) < Math.Epsilon || bb4ac < 0) {
-        //  line does not intersect
-        return undefined;
-    }
-    mu1 = (-b + Math.sqrt(bb4ac)) / (2 * a);
-    mu2 = (-b - Math.sqrt(bb4ac)) / (2 * a);
-    
-    const result1 = { x: p1.x + mu1 * (p2.x - p1.x), y: p1.y + mu1 * (p2.y - p1.y) };
-    const result2 = { x: p1.x + mu2 * (p2.x - p1.x), y: p1.y + mu2 * (p2.y - p1.y) };
-
-    if( (Math.pow(result1.x - p1.x, 2) + Math.pow(result1.y - p1.y, 2)) < (Math.pow(result2.x - p1.x, 2) + Math.pow(result2.y - p1.y, 2)) ) {
-        return result1;
-    } else {
-        return result2;
-    }
-}
-
 //addRandomNpcs(100);
 
 //createAiPlayer("루리");
@@ -813,13 +731,13 @@ function shootIntersection(p1, p2, circleX, circleY, radius) {
 //createAiPlayer("이카");
 //createAiPlayer("후하");
 
-setInterval(function() {
-    for(var i = 0; i < npcs.length; i++) {
+setInterval(function () {
+    for (var i = 0; i < npcs.length; i++) {
         const npc = npcs[npcs[i]];
-        if(npc) {
-            if(npc.x !== npc.destinationX || npc.y !== npc.destinationY) {
+        if (npc) {
+            if (npc.x !== npc.destinationX || npc.y !== npc.destinationY) {
                 const distance = getDistance(npc.x, npc.y, npc.destinationX, npc.destinationY);
-                if(npc.speed >= distance) {
+                if (npc.speed >= distance) {
                     npc.x = npc.destinationX;
                     npc.y = npc.destinationY;
                     sendAll('npc_destination', { id: npc.id, x: npc.x, y: npc.y, destinationX: npc.destinationX, destinationY: npc.destinationY });
@@ -829,9 +747,9 @@ setInterval(function() {
                     npc.y += ((npc.destinationY - npc.y) * ratio);
                 }
             } else {
-                if(npc.isPathMovingActive) {
+                if (npc.isPathMovingActive) {
                     npc.currentMovingPathIndex++;
-                    if(npc.currentMovingPathIndex < npc.movingPath.length) {
+                    if (npc.currentMovingPathIndex < npc.movingPath.length) {
                         npc.destinationX = npc.movingPath[npc.currentMovingPathIndex].x;
                         npc.destinationY = npc.movingPath[npc.currentMovingPathIndex].y;
                         sendAll('npc_destination', { id: npc.id, x: npc.x, y: npc.y, destinationX: npc.destinationX, destinationY: npc.destinationY });
@@ -840,7 +758,7 @@ setInterval(function() {
                         npc.isPathMovingActive = false;
                     }
                 } else {
-                    if(Math.random() < 0.005) {
+                    if (Math.random() < 0.005) {
                         setRandomDestinationPath(npc);
                         //setRandomDestination(npc, (Math.random() * 250) + 50);
                         sendAll('npc_destination', { id: npc.id, x: npc.x, y: npc.y, destinationX: npc.destinationX, destinationY: npc.destinationY });
@@ -853,29 +771,27 @@ setInterval(function() {
 
 ////////////////////////////////////////////////////////
 
-
-
 function getPlayersInSight(player, range) {
-    function getRayIntersection(ray, segment){
+    function getRayIntersection(ray, segment) {
         // RAY in parametric: Point + Direction*T1
         var r_px = ray.a.x;
         var r_py = ray.a.y;
         var r_dx = ray.b.x - ray.a.x;
         var r_dy = ray.b.y - ray.a.y;
-    
+
         // SEGMENT in parametric: Point + Direction*T2
         var s_px = segment.a.x;
         var s_py = segment.a.y;
         var s_dx = segment.b.x - segment.a.x;
         var s_dy = segment.b.y - segment.a.y;
-    
+
         // 두 선이 평행하다면 접점 존재하지 않음.
         var r_mag = Math.sqrt(r_dx * r_dx + r_dy * r_dy);
         var s_mag = Math.sqrt(s_dx * s_dx + s_dy * s_dy);
         if (r_dx / r_mag == s_dx / s_mag && r_dy / r_mag == s_dy / s_mag) { // 기울기 같음
             return null;
         }
-    
+
         // SOLVE FOR T1 & T2
         // r_px+r_dx*T1 = s_px+s_dx*T2 && r_py+r_dy*T1 = s_py+s_dy*T2
         // ==> T1 = (s_px+s_dx*T2-r_px)/r_dx = (s_py+s_dy*T2-r_py)/r_dy
@@ -883,11 +799,11 @@ function getPlayersInSight(player, range) {
         // ==> T2 = (r_dx*(s_py-r_py) + r_dy*(r_px-s_px))/(s_dx*r_dy - s_dy*r_dx)
         var T2 = (r_dx * (s_py - r_py) + r_dy * (r_px - s_px)) / (s_dx * r_dy - s_dy * r_dx);
         var T1 = (s_px + s_dx * T2 - r_px) / r_dx;
-    
+
         // Must be within parametic whatevers for RAY/SEGMENT
         if (T1 < 0) return null;
         if (T2 < 0 || T2 > 1) return null;
-    
+
         // Return the POINT OF INTERSECTION
         return {
             x: r_px + r_dx * T1,
@@ -906,23 +822,23 @@ function getPlayersInSight(player, range) {
 
     var startAngle = (Math.PI / 180 * (-55 + (player.direction % 360)));
     var endAngle = (Math.PI / 180 * (55 + (player.direction % 360)));
-    if(startAngle < -Math.PI) {
+    if (startAngle < -Math.PI) {
         startAngle += (Math.PI * 2);
-        postEvent = function(intersects) {
+        postEvent = function (intersects) {
             const offset = (Math.PI * 2);
             for (var j = 0; j < intersects.length; j++) {
-                if(intersects[j].angle > 0) {
+                if (intersects[j].angle > 0) {
                     intersects[j].angle -= offset;
                 }
             }
         }
-   }
-    if(endAngle > Math.PI) {
+    }
+    if (endAngle > Math.PI) {
         endAngle -= (Math.PI * 2);
-        postEvent = function(intersects) {
+        postEvent = function (intersects) {
             const offset = (Math.PI * 2);
             for (var j = 0; j < intersects.length; j++) {
-                if(intersects[j].angle < 0) {
+                if (intersects[j].angle < 0) {
                     intersects[j].angle += offset;
                 }
             }
@@ -932,28 +848,28 @@ function getPlayersInSight(player, range) {
     // uniqueAngles.push(startAngle);
     // uniqueAngles.push(endAngle);
 
-    for(var j = 0; j < clients.length; j++) {
+    for (var j = 0; j < clients.length; j++) {
         const client = clients[clients[j]];
-        if(client && client.id !== player.id) {
+        if (client && client.id !== player.id) {
             const clientCenterX = client.x + (client.width / 2);
             const clientCenterY = client.y + (client.height / 2);
 
             const distance = getDistance(rayX, rayY, clientCenterX, clientCenterY);
-            if(distance < range) {
+            if (distance < range) {
                 const angle = Math.atan2(clientCenterY - rayY, clientCenterX - rayX);
                 uniqueAngles.push({ angle: angle, distance: distance, target: client });
             }
         }
     }
 
-    for(var j = 0; j < aiPlayers.length; j++) {
+    for (var j = 0; j < aiPlayers.length; j++) {
         const aiPlayer = aiPlayers[aiPlayers[j]];
-        if(aiPlayer && aiPlayer.id !== player.id) {
+        if (aiPlayer && aiPlayer.id !== player.id) {
             const clientCenterX = aiPlayer.x + (aiPlayer.width / 2);
             const clientCenterY = aiPlayer.y + (aiPlayer.height / 2);
 
             const distance = getDistance(rayX, rayY, clientCenterX, clientCenterY);
-            if(distance < range) {
+            if (distance < range) {
                 const angle = Math.atan2(clientCenterY - rayY, clientCenterX - rayX);
                 uniqueAngles.push({ angle: angle, distance: distance, target: aiPlayer });
             }
@@ -972,7 +888,7 @@ function getPlayersInSight(player, range) {
             var ray = { a: { x: rayX, y: rayY }, b: { x: rayX + dx, y: rayY + dy } };
 
             var closestIntersect = null;
-            
+
             for (var i = 0; i < mapSegments.length; i++) {
                 var intersect = getRayIntersection(ray, mapSegments[i]);
                 if (!intersect) continue;
@@ -982,9 +898,9 @@ function getPlayersInSight(player, range) {
             }
             if (!closestIntersect) continue;
             closestIntersect.angle = angle;
-            
+
             const distance = getDistance(rayX, rayY, closestIntersect.x, closestIntersect.y);
-            if(uniqueAngles[j].distance < distance) {
+            if (uniqueAngles[j].distance < distance) {
                 result.push(uniqueAngles[j]);
             } else {
                 //console.log(uniqueAngles[j].distance + ", " + distance);
@@ -992,10 +908,10 @@ function getPlayersInSight(player, range) {
             }
         }
     }
-    if(postEvent) {
+    if (postEvent) {
         //postEvent(intersects);
     }
-    
+
     result = result.sort(function (a, b) {
         return a.distance - b.distance;
     });
@@ -1003,9 +919,8 @@ function getPlayersInSight(player, range) {
     return result.length > 0 ? result : undefined;
 }
 
-
 function getShootInfo(player, targetPoint) {
-    var muzzlePoint =  { x: player.x + (player.width / 2), y: player.y + (player.height / 2) };
+    var muzzlePoint = { x: player.x + (player.width / 2), y: player.y + (player.height / 2) };
 
     var muzzleOffsetX = 0;
     var muzzleOffsetY = 0;
@@ -1063,7 +978,6 @@ function getShootInfo(player, targetPoint) {
         angle: bulletAngle
     };
 }
-
 
 function aiProcess(aiPlayer) {
     if (aiPlayer) {
@@ -1190,26 +1104,3 @@ function aiProcess(aiPlayer) {
         }
     }
 }
-
-
-
-// setInterval(function() {
-
-//     for(var i = 0; i < aiPlayers.length; i++) {
-//         const aiPlayer = aiPlayers[aiPlayers[i]];
-//         aiProcess(aiPlayer);
-//     }
-// }, 1000 / 60);
-
-////////////////////////////////////////////////////////
-
-// setInterval(function() {
-//     for(var i = 0; i < clients.length; i++) {
-//         const client = clients[clients[i]];
-//         if(client) {
-//             if(client.speedX !== 0 || client.speedY !== 0) {
-
-//             } 
-//         }
-//     }
-// }, 1000 / 60);

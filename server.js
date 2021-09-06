@@ -1,187 +1,12 @@
 ﻿const { shootIntersection } = require('./utils.js');
+const { getWalkableRandomPosition, setRandomDestinationPath, setDestinationPath, mapSegments } = require('./map-helper.js');
 
 //웹소켓 서버 생성
 const wss = require('./websocket-server')(8081);
 
-var pathFinding = require('pathfinding');
-var mapData = require("../../html/shoot_game/map_office.js").mapData;
-var mapGrid = new pathFinding.Grid(mapData.width, mapData.height);
-var walkablePositions = [];
-
-for (var y = 0; y < mapData.height; y++) {
-    for (var x = 0; x < mapData.width; x++) {
-        const walkable = !mapData.wall_tiles.includes(mapData.data[(y * mapData.width) + x]);
-        mapGrid.setWalkableAt(x, y, walkable);
-        if (walkable) {
-            walkablePositions.push({ x: x, y: y });
-        }
-    }
-}
-
-var mapHitBoxes = findMapHitBoxes();
-var mapSegments = createSegments(mapHitBoxes);
-
-function createSegments(hitBoxes) {
-    function getSlope(segment) {
-        const dx = (segment.b.x - segment.a.x);
-        const dy = (segment.b.y - segment.a.y);
-        if (dx === 0) {
-            return undefined;
-        } else {
-            return (dy / dx);
-        }
-    }
-
-    var segments = [];
-    if (hitBoxes) {
-        var tempSegments = [];
-        for (var i = 0; i < hitBoxes.length; i++) {
-            const hitBox = hitBoxes[i];
-            if (hitBox) {
-                tempSegments.push(
-                    { a: { x: hitBox.left, y: hitBox.top }, b: { x: hitBox.right, y: hitBox.top }, valid: true },
-                    { a: { x: hitBox.right, y: hitBox.top }, b: { x: hitBox.right, y: hitBox.bottom }, valid: true },
-                    { a: { x: hitBox.left, y: hitBox.bottom }, b: { x: hitBox.right, y: hitBox.bottom }, valid: true },
-                    { a: { x: hitBox.left, y: hitBox.top }, b: { x: hitBox.left, y: hitBox.bottom }, valid: true }
-                );
-            }
-        }
-
-        for (var i = 0; i < tempSegments.length; i++) {
-            if (tempSegments[i].valid) {
-                const slopeSrc = getSlope(tempSegments[i]);
-                const interceptYSrc = (tempSegments[i].a.y - (tempSegments[i].a.x * slopeSrc));
-                const leftSrc = Math.min(tempSegments[i].a.x, tempSegments[i].b.x);
-                const topSrc = Math.min(tempSegments[i].a.y, tempSegments[i].b.y);
-                const rightSrc = Math.max(tempSegments[i].a.x, tempSegments[i].b.x);
-                const bottomSrc = Math.max(tempSegments[i].a.y, tempSegments[i].b.y);
-
-                for (var j = 0; j < tempSegments.length; j++) {
-                    if (i !== j && tempSegments[j].valid) {
-                        // tempSegments[i] 안에 tempSegments[j] 가 포함되는지 검사 후 valid 체크
-                        const slopeDest = getSlope(tempSegments[j]);
-                        if (slopeSrc === slopeDest) {
-                            const interceptYDest = (tempSegments[j].a.y - (tempSegments[j].a.x * slopeSrc));
-                            if (interceptYSrc === interceptYDest) {
-                                const leftDest = Math.min(tempSegments[j].a.x, tempSegments[j].b.x);
-                                const topDest = Math.min(tempSegments[j].a.y, tempSegments[j].b.y);
-                                const rightDest = Math.max(tempSegments[j].a.x, tempSegments[j].b.x);
-                                const bottomDest = Math.max(tempSegments[j].a.y, tempSegments[j].b.y);
-
-                                if (leftSrc <= leftDest && rightSrc >= leftDest &&
-                                    leftSrc <= rightDest && rightSrc >= rightDest &&
-                                    topSrc <= topDest && topSrc >= topDest &&
-                                    bottomSrc <= bottomDest && bottomSrc >= bottomDest) {
-
-                                    tempSegments[j].valid = false;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for (var i = 0; i < tempSegments.length; i++) {
-            if (tempSegments[i].valid) {
-                segments.push(tempSegments[i]);
-            }
-        }
-    }
-    return segments;
-}
-
-function findMapHitBoxes() {
-    function isWall(x, y) {
-        return mapData.wall_tiles.includes(mapData.data[(y * mapData.width) + x]);
-    }
-
-    function findLeftTopRight(findedHitbox) {
-        function containsHitboxs(x, y) {
-            for (var i = 0; i < findedHitbox.length; i++) {
-                if (x >= findedHitbox[i].left && x <= findedHitbox[i].right && y >= findedHitbox[i].top && y <= findedHitbox[i].bottom) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        for (var y = 0; y < mapData.height; y++) {
-            for (var x = 0; x < mapData.width; x++) {
-                if (!containsHitboxs(x, y) && isWall(x, y)) {
-                    const left = x;
-                    const top = y;
-                    for (var r = (x + 1); r < mapData.width; r++) {
-                        if (containsHitboxs(r, y) || !isWall(r, y)) {
-                            return { left: x, top: y, right: (r - 1) };
-                        }
-
-                        //////////////////////////////////// 최대 가로 32 블럭으로 제한
-                        else {
-                            if (((r - 1) - left) >= 32) {
-                                return { left: x, top: y, right: (r - 1) };
-                            }
-                        }
-                        /////////////////////////////////////
-                    }
-                    return { left: x, top: y, right: (mapData.width - 1) };
-                }
-            }
-        }
-        return undefined;
-    }
-
-    function findBottom(leftTopRight) {
-        for (var y = (leftTopRight.top + 1); y < mapData.height; y++) {
-            for (var x = leftTopRight.left; x <= leftTopRight.right; x++) {
-                if (!isWall(x, y)) {
-                    return (y - 1);
-                }
-            }
-
-            //////////////////////////////////// 최대 세로 32 블럭으로 제한
-            if (((y - 1) - leftTopRight.top) >= 32) {
-                return (y - 1);
-            }
-            /////////////////////////////////////
-        }
-        return (mapData.height - 1);
-    }
-
-    var findedHitbox = [];
-    var result = [];
-    while (true) {
-        const leftTopRight = findLeftTopRight(findedHitbox);
-        if (leftTopRight) {
-            const bottom = findBottom(leftTopRight);
-            findedHitbox.push({ left: leftTopRight.left, top: leftTopRight.top, right: leftTopRight.right, bottom: bottom });
-            result.push(
-                {
-                    left: (leftTopRight.left * mapData.tile_width),
-                    top: (leftTopRight.top * mapData.tile_height),
-                    right: (leftTopRight.left * mapData.tile_width) + (((leftTopRight.right - leftTopRight.left) * mapData.tile_width) + mapData.tile_width),
-                    bottom: (leftTopRight.top * mapData.tile_height) + (((bottom - leftTopRight.top) * mapData.tile_height) + mapData.tile_height)
-                });
-        } else {
-            break;
-        }
-    }
-
-    return result;
-}
-
-var pathFinder = new pathFinding.AStarFinder({
-    allowDiagonal: true,
-    dontCrossCorners: true
-});
-
-function findPath(startX, startY, endX, endY) {
-    return pathFinder.findPath(startX, startY, endX, endY, mapGrid.clone());
-}
-
 var connectionCount = 0;
 var clients = [];
-var count = 0;
+var userCount = 0;
 
 var aiPlayers = [];
 var aiIdCount = 0;
@@ -191,7 +16,7 @@ var npcs = [];
 
 wss.on('connection', function connection(ws) {
 
-    var id = ('USER_' + connectionCount++);
+    const id = ('USER_' + connectionCount++);
 
     console.log('connection is established : ' + id);
     clients[id] = [];
@@ -244,7 +69,7 @@ wss.on('connection', function connection(ws) {
                         hp: 100.0
                     });
 
-                for (var i = 0; i < clients.length; i++) {
+                for (let i = 0; i < clients.length; i++) {
                     const client = clients[clients[i]];
                     if (client !== undefined) {
                         ws.send(JSON.stringify(
@@ -263,7 +88,7 @@ wss.on('connection', function connection(ws) {
                     }
                 }
 
-                for (var i = 0; i < aiPlayers.length; i++) {
+                for (let i = 0; i < aiPlayers.length; i++) {
                     const aiPlayer = aiPlayers[aiPlayers[i]];
                     if (aiPlayer !== undefined) {
                         ws.send(JSON.stringify(
@@ -282,7 +107,7 @@ wss.on('connection', function connection(ws) {
                     }
                 }
 
-                for (var i = 0; i < npcs.length; i++) {
+                for (let i = 0; i < npcs.length; i++) {
                     const npc = npcs[npcs[i]];
                     if (npc !== undefined) {
                         ws.send(JSON.stringify(
@@ -336,7 +161,6 @@ wss.on('connection', function connection(ws) {
                 sendAll('user_weapon', { id: id, weapon: msg.data.weapon });
                 break;
             case 'user_shoot':
-                // 총알 충돌처리 필요
                 console.log('ID: ' + id + ' -> ' + message);
                 shootProcess(id, msg.data.weapon, 'user', msg.data.muzzlePoint.x, msg.data.muzzlePoint.y, msg.data.targetPoint.x, msg.data.targetPoint.y);
                 sendAll('user_shoot', { id: id, weapon: msg.data.weapon, muzzlePoint: msg.data.muzzlePoint, targetPoint: msg.data.targetPoint, angle: msg.data.angle })
@@ -350,11 +174,11 @@ wss.on('connection', function connection(ws) {
     ws.on('close', function disconnection() {
         console.log('user ' + id + ' disconnected');
         delete clients[id];
-        sendAll('user_count', --count);
+        sendAll('user_count', --userCount);
         sendAll('user_disconnected', { id: id });
     });
 
-    sendAll('user_count', ++count);
+    sendAll('user_count', ++userCount);
 });
 
 function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) {
@@ -598,56 +422,6 @@ function getDistance(x1, y1, x2, y2) {
     return Math.sqrt(Math.abs(dX * dX) + Math.abs(dY * dY));
 }
 
-function getWalkableRandomPosition() {
-    const point = walkablePositions[Math.floor(Math.random() * walkablePositions.length) % walkablePositions.length];
-    return { x: ((point.x * mapData.tile_width)), y: ((point.y * mapData.tile_height)) };
-}
-
-function setRandomDestinationPath(npc) {
-    if (npc) {
-        const target = walkablePositions[Math.floor(Math.random() * walkablePositions.length) % walkablePositions.length];
-        const path = pathFinding.Util.compressPath(findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), target.x, target.y));
-
-        npc.movingPath = [];
-        for (var i = 0; i < path.length; i++) {
-            npc.movingPath.push({
-                x: ((path[i][0] * mapData.tile_width)),
-                y: ((path[i][1] * mapData.tile_height))
-            });
-        }
-        npc.currentMovingPathIndex = 0;
-        npc.isPathMovingActive = true;
-
-        if (npc.movingPath.length > 0) {
-            npc.destinationX = npc.movingPath[0].x;
-            npc.destinationY = npc.movingPath[0].y;
-        }
-
-    }
-}
-
-function setDestinationPath(npc, target) {
-    if (npc && target) {
-        const path = pathFinding.Util.compressPath(findPath(Math.floor(npc.x / mapData.tile_width), Math.floor(npc.y / mapData.tile_height), Math.floor(target.x / mapData.tile_width), Math.floor(target.y / mapData.tile_height)));
-
-        npc.movingPath = [];
-        for (var i = 1; i < path.length; i++) {
-            npc.movingPath.push({
-                x: ((path[i][0] * mapData.tile_width)),
-                y: ((path[i][1] * mapData.tile_height))
-            });
-        }
-        npc.currentMovingPathIndex = 0;
-        npc.isPathMovingActive = true;
-
-        if (npc.movingPath.length > 0) {
-            npc.destinationX = npc.movingPath[0].x;
-            npc.destinationY = npc.movingPath[0].y;
-        }
-
-    }
-}
-
 function createNpc(x, y, destX, destY, speed) {
     var id = ('NPC_' + npcIdCount++);
     npcs[id] = [];
@@ -722,8 +496,8 @@ function createAiPlayer(name) {
 
 //addRandomNpcs(100);
 
-//createAiPlayer("루리");
-//createAiPlayer("라시");
+createAiPlayer("루리");
+createAiPlayer("라시");
 //createAiPlayer("살인마");
 //createAiPlayer("제임스");
 //createAiPlayer("후아암");
@@ -732,7 +506,7 @@ function createAiPlayer(name) {
 //createAiPlayer("후하");
 
 setInterval(function () {
-    for (var i = 0; i < npcs.length; i++) {
+    for (let i = 0; i < npcs.length; i++) {
         const npc = npcs[npcs[i]];
         if (npc) {
             if (npc.x !== npc.destinationX || npc.y !== npc.destinationY) {
@@ -812,43 +586,22 @@ function getPlayersInSight(player, range) {
         };
     }
 
-    var rayX = player.x + (player.width / 2);
-    var rayY = player.y + (player.height / 2);
+    const rayX = player.x + (player.width / 2);
+    const rayY = player.y + (player.height / 2);
 
     // Get all angles
-    var uniqueAngles = [];
+    let uniqueAngles = [];
 
-    var postEvent = undefined;
-
-    var startAngle = (Math.PI / 180 * (-55 + (player.direction % 360)));
-    var endAngle = (Math.PI / 180 * (55 + (player.direction % 360)));
+    let startAngle = (Math.PI / 180 * (-55 + (player.direction % 360)));
+    let endAngle = (Math.PI / 180 * (55 + (player.direction % 360)));
     if (startAngle < -Math.PI) {
         startAngle += (Math.PI * 2);
-        postEvent = function (intersects) {
-            const offset = (Math.PI * 2);
-            for (var j = 0; j < intersects.length; j++) {
-                if (intersects[j].angle > 0) {
-                    intersects[j].angle -= offset;
-                }
-            }
-        }
     }
     if (endAngle > Math.PI) {
         endAngle -= (Math.PI * 2);
-        postEvent = function (intersects) {
-            const offset = (Math.PI * 2);
-            for (var j = 0; j < intersects.length; j++) {
-                if (intersects[j].angle < 0) {
-                    intersects[j].angle += offset;
-                }
-            }
-        }
     }
 
-    // uniqueAngles.push(startAngle);
-    // uniqueAngles.push(endAngle);
-
-    for (var j = 0; j < clients.length; j++) {
+    for (let j = 0; j < clients.length; j++) {
         const client = clients[clients[j]];
         if (client && client.id !== player.id) {
             const clientCenterX = client.x + (client.width / 2);
@@ -862,7 +615,7 @@ function getPlayersInSight(player, range) {
         }
     }
 
-    for (var j = 0; j < aiPlayers.length; j++) {
+    for (let j = 0; j < aiPlayers.length; j++) {
         const aiPlayer = aiPlayers[aiPlayers[j]];
         if (aiPlayer && aiPlayer.id !== player.id) {
             const clientCenterX = aiPlayer.x + (aiPlayer.width / 2);
@@ -876,20 +629,20 @@ function getPlayersInSight(player, range) {
         }
     }
 
-    var result = [];
+    let result = [];
 
-    for (var j = 0; j < uniqueAngles.length; j++) {
-        var angle = uniqueAngles[j].angle;
+    for (let j = 0; j < uniqueAngles.length; j++) {
+        const angle = uniqueAngles[j].angle;
 
         if ((startAngle < endAngle ? (startAngle <= angle && angle <= endAngle) : (startAngle <= angle || angle <= endAngle))) {
-            var dx = Math.cos(angle);
-            var dy = Math.sin(angle);
+            const dx = Math.cos(angle);
+            const dy = Math.sin(angle);
 
-            var ray = { a: { x: rayX, y: rayY }, b: { x: rayX + dx, y: rayY + dy } };
+            const ray = { a: { x: rayX, y: rayY }, b: { x: rayX + dx, y: rayY + dy } };
 
-            var closestIntersect = null;
+            let closestIntersect = null;
 
-            for (var i = 0; i < mapSegments.length; i++) {
+            for (let i = 0; i < mapSegments.length; i++) {
                 var intersect = getRayIntersection(ray, mapSegments[i]);
                 if (!intersect) continue;
                 if (!closestIntersect || intersect.param < closestIntersect.param) {
@@ -902,14 +655,8 @@ function getPlayersInSight(player, range) {
             const distance = getDistance(rayX, rayY, closestIntersect.x, closestIntersect.y);
             if (uniqueAngles[j].distance < distance) {
                 result.push(uniqueAngles[j]);
-            } else {
-                //console.log(uniqueAngles[j].distance + ", " + distance);
-                //console.log(closestIntersect);
             }
         }
-    }
-    if (postEvent) {
-        //postEvent(intersects);
     }
 
     result = result.sort(function (a, b) {
@@ -983,12 +730,8 @@ function aiProcess(aiPlayer) {
     if (aiPlayer) {
         const aiCenterX = aiPlayer.x + (aiPlayer.width / 2);
         const aiCenterY = aiPlayer.y + (aiPlayer.height / 2);
-        //
+
         const inSightPlayers = getPlayersInSight(aiPlayer, 900);
-        if (inSightPlayers) {
-
-        }
-
         switch (aiPlayer.fsm.state) {
             case 'roam':
                 if (inSightPlayers) {

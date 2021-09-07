@@ -14,6 +14,8 @@ var aiIdCount = 0;
 var npcIdCount = 0;
 var npcs = [];
 
+let userChats = [];
+
 wss.on('connection', function connection(ws) {
 
     const id = ('USER_' + connectionCount++);
@@ -124,6 +126,14 @@ wss.on('connection', function connection(ws) {
                     }
                 }
 
+                for(let i = 0; i < userChats.length; i++) {
+                    ws.send(JSON.stringify(
+                        {
+                            type: 'user_chat',
+                            data: userChats[i]
+                        }));
+                }
+
                 break;
             case 'user_position':
                 clients[id].x = msg.data.x;
@@ -145,7 +155,12 @@ wss.on('connection', function connection(ws) {
                 if (msg.data.chat.charAt(0) === '/') {
                     runCommand(msg.data.chat.substring(1));
                 } else {
-                    sendAll('user_chat', { id: id, chat: msg.data.chat });
+                    const chatData = { id: id, chat: msg.data.chat, date: Date.now() };
+                    sendAll('user_chat', chatData);
+                    userChats.push(chatData);
+                    if(userChats.length >= 100) {
+                        userChats = userChats.splice(-100);
+                    }
                 }
                 break;
             case 'user_direction':
@@ -242,8 +257,6 @@ function shootProcess(id, weapon, provider, muzzleX, muzzleY, targetX, targetY) 
         }
 
         if (hitObject && hitObjectType) {
-            //console.log('shoot_hit: ' + hitObject.id);
-
             if (hitObject.hp) {
                 switch (weapon) {
                     case 'handgun':
@@ -496,8 +509,8 @@ function createAiPlayer(name) {
 
 //addRandomNpcs(100);
 
-createAiPlayer("루리");
-createAiPlayer("라시");
+//createAiPlayer("루리");
+//createAiPlayer("라시");
 //createAiPlayer("살인마");
 //createAiPlayer("제임스");
 //createAiPlayer("후아암");
@@ -704,7 +717,7 @@ function getShootInfo(player, targetPoint) {
     muzzlePoint.x += (Math.cos(muzzleAngle) * muzzleDistance);
     muzzlePoint.y += (Math.sin(muzzleAngle) * muzzleDistance);
 
-    var bulletAngle = 0.0;
+    let bulletAngle = 0.0;
     if (targetPoint !== undefined) {
         const bulletRadian = Math.atan2((targetPoint.y - muzzlePoint.y), (targetPoint.x - muzzlePoint.x)) + (deviationAngle);
         bulletAngle = (bulletRadian * 180 / Math.PI);

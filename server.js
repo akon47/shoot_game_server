@@ -124,14 +124,12 @@ wss.on("connection", function connection(ws) {
           }
         }
 
-        for (let i = 0; i < userChats.length; i++) {
-          ws.send(
-            JSON.stringify({
-              type: "user_chat",
-              data: userChats[i],
-            })
-          );
-        }
+        ws.send(
+          JSON.stringify({
+            type: "user_chat_history",
+            data: userChats,
+          })
+        );
 
         break;
       case "user_position":
@@ -158,7 +156,12 @@ wss.on("connection", function connection(ws) {
         if (msg.data.chat.charAt(0) === "/") {
           runCommand(msg.data.chat.substring(1));
         } else {
-          const chatData = { id: id, chat: msg.data.chat, date: Date.now() };
+          const chatData = {
+            id: id,
+            name: clients[id].name,
+            chat: msg.data.chat,
+            date: Date.now(),
+          };
           sendAll("user_chat", chatData);
           userChats.push(chatData);
           if (userChats.length >= 100) {

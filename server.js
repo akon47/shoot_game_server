@@ -42,9 +42,15 @@ wss.on("connection", function connection(ws) {
 
   ws.send(JSON.stringify({ type: "id", data: id }));
 
+  ws.send(
+    JSON.stringify({
+      type: "user_chat_history",
+      data: userChats,
+    })
+  );
+
   ws.on("message", function incoming(message) {
     var msg = JSON.parse(message);
-    //console.log('ID: ' + id + ' -> ' + message);
     switch (msg.type) {
       case "echo":
         ws.send(message);
@@ -124,13 +130,6 @@ wss.on("connection", function connection(ws) {
           }
         }
 
-        ws.send(
-          JSON.stringify({
-            type: "user_chat_history",
-            data: userChats,
-          })
-        );
-
         break;
       case "user_position":
         clients[id].x = msg.data.x;
@@ -182,7 +181,7 @@ wss.on("connection", function connection(ws) {
         sendAll("user_weapon", { id: id, weapon: msg.data.weapon });
         break;
       case "user_shoot":
-        console.log("ID: " + id + " -> " + message);
+        //console.log("ID: " + id + " -> " + message);
         shootProcess(
           id,
           msg.data.weapon,
@@ -458,6 +457,10 @@ function createAiPlayer(name) {
   }, 1000 / 60);
 }
 
+createAiPlayer("Bro");
+//createAiPlayer("Ballmer");
+//createAiPlayer("Luck");
+
 //createAiPlayer("루리");
 //createAiPlayer("라시");
 //createAiPlayer("살인마");
@@ -685,7 +688,7 @@ function aiProcess(aiPlayer) {
     const aiCenterX = aiPlayer.x + aiPlayer.width / 2;
     const aiCenterY = aiPlayer.y + aiPlayer.height / 2;
 
-    const inSightPlayers = getPlayersInSight(aiPlayer, 900);
+    const inSightPlayers = getPlayersInSight(aiPlayer, 700);
     switch (aiPlayer.fsm.state) {
       case "roam":
         if (inSightPlayers) {
@@ -756,13 +759,13 @@ function aiProcess(aiPlayer) {
 
           if (
             !aiPlayer.lastShootTime ||
-            Date.now() - aiPlayer.lastShootTime > 200
+            Date.now() - aiPlayer.lastShootTime > 400
           ) {
             aiPlayer.lastShootTime = Date.now();
 
             const shootInfo = getShootInfo(aiPlayer, {
-              x: aiPlayer.fsm.attackTarget.x,
-              y: aiPlayer.fsm.attackTarget.y,
+              x: aiPlayer.fsm.attackTarget.x + aiPlayer.fsm.attackTarget.width / 2 + (Math.random() * 50),
+              y: aiPlayer.fsm.attackTarget.y + aiPlayer.fsm.attackTarget.height / 2 + (Math.random() * 50),
             });
             shootProcess(
               aiPlayer.id,

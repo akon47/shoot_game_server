@@ -324,7 +324,8 @@ function shootProcess(
             if (provider === "user" && clients[id]) {
               clients[id].kill++;
               sendAll("user_kill", { id: id, kill: clients[id].kill });
-            } else if (provider === "ai" && aiPlayers[aiPlayers[id]]) {
+            } else if (provider === "ai" && aiPlayers[id]) {
+
               aiPlayers[id].kill++;
               aiPlayers[id].isPathMovingActive = false;
               aiPlayers[id].fsm.state = "roam";
@@ -458,7 +459,7 @@ function createAiPlayer(name) {
 }
 
 createAiPlayer("Bro");
-//createAiPlayer("Ballmer");
+createAiPlayer("Ballmer");
 //createAiPlayer("Luck");
 
 //createAiPlayer("루리");

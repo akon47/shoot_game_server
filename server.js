@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 ﻿const { shootIntersection, getDistance } = require("./utils.js");
 const {
   getWalkableRandomPosition,
@@ -8,6 +10,14 @@ const {
 
 //웹소켓 서버 생성
 const wss = require("./websocket-server")(8080);
+const dataPath = path.join(__dirname, "datas");
+const chatFilePath = path.join(dataPath, "user_chats.json");
+if(!fs.existsSync(dataPath)) {
+  fs.mkdirSync(dataPath, { recursive: true });
+}
+if(!fs.existsSync(chatFilePath)) {
+  fs.writeFileSync(chatFilePath, "");
+}
 
 var connectionCount = 0;
 var clients = [];
@@ -15,8 +25,8 @@ var userCount = 0;
 
 var aiPlayers = [];
 var aiIdCount = 0;
-
-let userChats = [];
+let userChats = JSON.parse(`[${fs.readFileSync(chatFilePath).toString().trim().replace(/(^,)|(,$)/g, "")}]`);
+userChats = userChats.splice(-100);
 
 wss.on("connection", function connection(ws) {
   const id = "USER_" + connectionCount++;
@@ -152,8 +162,9 @@ wss.on("connection", function connection(ws) {
         sendAll("user_name", { id: id, name: msg.data.name });
         break;
       case "user_chat":
+        msg.data.chat = msg.data.chat.replace(/</gi, "&lt;").replace(/>/gi, "&gt;");
         if (msg.data.chat.charAt(0) === "/") {
-          runCommand(msg.data.chat.substring(1));
+          //runCommand(msg.data.chat.substring(1));
         } else {
           const chatData = {
             id: id,
@@ -163,6 +174,8 @@ wss.on("connection", function connection(ws) {
           };
           sendAll("user_chat", chatData);
           userChats.push(chatData);
+          fs.appendFile(chatFilePath, `${JSON.stringify(chatData)},\n`, (err) => {
+	  });
           if (userChats.length >= 100) {
             userChats = userChats.splice(-100);
           }

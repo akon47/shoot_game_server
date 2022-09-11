@@ -1,5 +1,5 @@
 const pathFinding = require("pathfinding");
-const mapData = require("../../html/shoot_game/map_office.js").mapData;
+const mapData = require("../shoot_game/map_office.js").mapData;
 const mapGrid = new pathFinding.Grid(mapData.width, mapData.height);
 const walkablePositions = [];
 

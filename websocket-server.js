@@ -3,12 +3,12 @@ const WebSocketServer = require("ws").Server;
 
 module.exports = (port) => {
   const https_options = {
-    ca: fs.readFileSync("/etc/letsencrypt/live/kimhwan.kr/fullchain.pem"),
-    key: fs.readFileSync("/etc/letsencrypt/live/kimhwan.kr/privkey.pem"),
-    cert: fs.readFileSync("/etc/letsencrypt/live/kimhwan.kr/fullchain.pem"),
+    //ca: fs.readFileSync("/etc/letsencrypt/live/kimhwan.kr/fullchain.pem"),
+    //key: fs.readFileSync("/etc/letsencrypt/live/kimhwan.kr/privkey.pem"),
+    //cert: fs.readFileSync("/etc/letsencrypt/live/kimhwan.kr/fullchain.pem"),
   };
 
-  const httpsServer = require("https").createServer(
+  const httpsServer = require("http").createServer(
     https_options,
     function (request, response) {
       console.log(new Date() + " Received request for " + request.url);

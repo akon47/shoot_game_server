@@ -7,7 +7,7 @@ const {
 } = require("./map-helper.js");
 
 //웹소켓 서버 생성
-const wss = require("./websocket-server")(8081);
+const wss = require("./websocket-server")(8080);
 
 var connectionCount = 0;
 var clients = [];

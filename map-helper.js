@@ -270,6 +270,19 @@ module.exports = {
     }
   },
   mapSegments: mapSegments,
+  isWalkablePosition: (pixelX, pixelY) => {
+    const tileX = Math.floor(pixelX / mapData.tile_width);
+    const tileY = Math.floor(pixelY / mapData.tile_height);
+    if (
+      tileX < 0 ||
+      tileY < 0 ||
+      tileX >= mapData.width ||
+      tileY >= mapData.height
+    ) {
+      return false;
+    }
+    return mapGrid.isWalkableAt(tileX, tileY);
+  },
   setDestinationPath: (npc, target) => {
     if (npc && target) {
       const path = pathFinding.Util.compressPath(

@@ -1,10 +1,11 @@
 const fs = require("fs");
 const path = require("path");
-﻿const { shootIntersection, getDistance } = require("./utils.js");
+const { shootIntersection, getDistance } = require("./utils.js");
 const {
   getWalkableRandomPosition,
   setRandomDestinationPath,
   setDestinationPath,
+  isWalkablePosition,
   mapSegments,
 } = require("./map-helper.js");
 
@@ -25,6 +26,85 @@ var userCount = 0;
 
 var aiPlayers = [];
 var aiIdCount = 0;
+
+// AI 동작 파라미터
+const AI_SIGHT_RANGE = 700; // 시야 거리(px)
+const AI_ATTACK_RANGE = 380; // 이 거리 안이면 정지 후 사격
+const AI_ATTACK_RANGE_BUFFER = 80; // attack -> chase 전환 히스테리시스(px)
+const AI_RETREAT_RANGE = 120; // 타겟이 이 거리보다 가까우면 거리 벌리기
+const AI_REPATH_INTERVAL = 300; // A* 경로 재계산 최소 간격(ms)
+const AI_TARGET_LOST_TIMEOUT = 2500; // 타겟을 시야에서 놓친 후 추격 포기까지(ms)
+const AI_LAST_SEEN_ARRIVE_DISTANCE = 48; // 마지막 목격 지점 도착 판정 거리(px)
+const AI_SHOOT_INTERVAL = 400; // 사격 간격(ms)
+const AI_SHOOT_FACING_TOLERANCE = 25; // 타겟 방향과 이 각도(도) 이내일 때만 사격
+const AI_MOVE_SPEED = 3; // 프레임당 이동량(px)
+const AI_BODY_DISTANCE = 32; // 플레이어끼리 유지해야 하는 최소 중심 거리(px)
+const AI_SPAWN_MIN_DISTANCE = 200; // 스폰 시 다른 플레이어와 최소 거리(px)
+
+// AI 입퇴장(인구) 파라미터
+const AI_MAX_COUNT = 10; // 동시 접속 AI 최대 수
+const AI_MIN_COUNT = 2; // 방이 비지 않도록 유지할 최소 수
+const AI_JOIN_INTERVAL_MIN = 20 * 1000; // 다음 입장 시도까지 최소 간격(ms)
+const AI_JOIN_INTERVAL_MAX = 80 * 1000; // 다음 입장 시도까지 최대 간격(ms)
+const AI_STAY_DURATION_MIN = 2 * 60 * 1000; // 입장 후 머무는 최소 시간(ms)
+const AI_STAY_DURATION_MAX = 7 * 60 * 1000; // 입장 후 머무는 최대 시간(ms)
+const AI_GREETING_CHANCE = 0.4; // 입장 시 인사 채팅 확률
+const AI_FAREWELL_CHANCE = 0.35; // 퇴장 전 작별 채팅 확률
+
+const aiNamePool = [
+  "초코우유",
+  "감자튀김",
+  "야근중",
+  "총잡이김씨",
+  "옆집형",
+  "고양이발바닥",
+  "롤하다옴",
+  "서울촌놈",
+  "물복숭아",
+  "겜잘알",
+  "닉네임뭐하지",
+  "불꽃남자",
+  "피곤한직장인",
+  "김밥천국",
+  "달리는거북이",
+  "Shadow",
+  "nova7",
+  "PewPew",
+  "Ghost99",
+  "mango",
+  "Rookie",
+  "headshot_kim",
+  "ZeroCool",
+  "BlueBerry",
+  "xXSniperXx",
+  "lucky",
+  "DancingPotato",
+  "Bro",
+  "Ballmer",
+];
+
+const aiGreetings = [
+  "ㅎㅇ",
+  "ㅎㅇㅎㅇ",
+  "안녕하세요",
+  "hi",
+  "hello~",
+  "왔습니다",
+  "다들 ㅎㅇ",
+];
+
+const aiFarewells = [
+  "ㅂㅂ",
+  "전 이만",
+  "bye",
+  "gg",
+  "밥먹으러 갑니다",
+  "잘있어요~",
+  "나중에 또 봐요",
+];
+
+const aiWeapons = ["handgun", "rifle", "shotgun"];
+
 let userChats = JSON.parse(`[${fs.readFileSync(chatFilePath).toString().trim().replace(/(^,)|(,$)/g, "")}]`);
 userChats = userChats.splice(-100);
 
@@ -221,11 +301,13 @@ wss.on("connection", function connection(ws) {
   ws.on("close", function disconnection() {
     console.log("user " + id + " disconnected");
     delete clients[id];
-    sendAll("user_count", --userCount);
+    userCount--;
+    broadcastUserCount();
     sendAll("user_disconnected", { id: id });
   });
 
-  sendAll("user_count", ++userCount);
+  userCount++;
+  broadcastUserCount();
 });
 
 function shootProcess(
@@ -338,10 +420,8 @@ function shootProcess(
               clients[id].kill++;
               sendAll("user_kill", { id: id, kill: clients[id].kill });
             } else if (provider === "ai" && aiPlayers[id]) {
-
               aiPlayers[id].kill++;
-              aiPlayers[id].isPathMovingActive = false;
-              aiPlayers[id].fsm.state = "roam";
+              resetToRoam(aiPlayers[id]);
               sendAll("user_kill", { id: id, kill: aiPlayers[id].kill });
             }
             hitObject.death++;
@@ -360,20 +440,19 @@ function shootProcess(
               sendAll("user_kill", { id: id, kill: clients[id].kill });
             } else if (provider === "ai" && aiPlayers[id]) {
               aiPlayers[id].kill++;
-              aiPlayers[id].isPathMovingActive = false;
-              aiPlayers[id].fsm.state = "roam";
-
+              resetToRoam(aiPlayers[id]);
               sendAll("user_kill", { id: id, kill: aiPlayers[id].kill });
             }
 
             hitObject.hp = 100.0;
-            const position = getWalkableRandomPosition();
+            const position = getAiSpawnPosition();
             hitObject.x = position.x;
             hitObject.y = position.y;
             hitObject.destinationX = position.x;
             hitObject.destinationY = position.y;
             hitObject.isPathMovingActive = false;
             hitObject.fsm.state = "roam";
+            hitObject.fsm.targetId = undefined;
             hitObject.death++;
             sendAll("user_connected", {
               id: hitObject.id,
@@ -398,6 +477,10 @@ function shootProcess(
           case "ai":
             sendAll("user_hp", { id: hitObject.id, hp: hitObject.hp });
             break;
+        }
+        // AI가 공격받으면 공격자에게 어그로
+        if (hitObjectType === "ai") {
+          aiAggro(hitObject, id);
         }
       }
     }
@@ -428,8 +511,92 @@ function runCommand(command) {
   }
 }
 
+// 다른 플레이어와 일정 거리 이상 떨어진 스폰 위치를 찾는다 (겹친 채 스폰 방지)
+function getAiSpawnPosition() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const position = getWalkableRandomPosition();
+    let tooClose = false;
+    for (let i = 0; i < clients.length; i++) {
+      const client = clients[clients[i]];
+      if (
+        client &&
+        getDistance(position.x, position.y, client.x, client.y) <
+          AI_SPAWN_MIN_DISTANCE
+      ) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (!tooClose) {
+      for (let i = 0; i < aiPlayers.length; i++) {
+        const aiPlayer = aiPlayers[aiPlayers[i]];
+        if (
+          aiPlayer &&
+          getDistance(position.x, position.y, aiPlayer.x, aiPlayer.y) <
+            AI_SPAWN_MIN_DISTANCE
+        ) {
+          tooClose = true;
+          break;
+        }
+      }
+    }
+    if (!tooClose) {
+      return position;
+    }
+  }
+  return getWalkableRandomPosition();
+}
+
+function getAiCount() {
+  let count = 0;
+  for (let i = 0; i < aiPlayers.length; i++) {
+    if (aiPlayers[aiPlayers[i]]) {
+      count++;
+    }
+  }
+  return count;
+}
+
+// 접속자 수는 실제 유저 + AI 합산으로 보내서 AI도 사람처럼 보이게 한다
+function broadcastUserCount() {
+  sendAll("user_count", userCount + getAiCount());
+}
+
+// 현재 사용 중이지 않은 이름을 랜덤으로 고른다
+function pickAiName() {
+  const inUse = {};
+  for (let i = 0; i < aiPlayers.length; i++) {
+    const aiPlayer = aiPlayers[aiPlayers[i]];
+    if (aiPlayer) {
+      inUse[aiPlayer.name] = true;
+    }
+  }
+  const candidates = aiNamePool.filter((name) => !inUse[name]);
+  if (candidates.length === 0) {
+    return "Guest" + Math.floor(Math.random() * 1000);
+  }
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+// AI가 보내는 채팅도 유저 채팅과 동일하게 브로드캐스트하고 기록에 남긴다
+function sendAiChat(aiPlayer, text) {
+  const chatData = {
+    id: aiPlayer.id,
+    name: aiPlayer.name,
+    chat: text,
+    date: Date.now(),
+  };
+  sendAll("user_chat", chatData);
+  userChats.push(chatData);
+  fs.appendFile(chatFilePath, `${JSON.stringify(chatData)},\n`, (err) => {
+  });
+  if (userChats.length >= 100) {
+    userChats = userChats.splice(-100);
+  }
+}
+
 function createAiPlayer(name) {
-  const position = getWalkableRandomPosition();
+  const position = getAiSpawnPosition();
 
   var id = "AI_" + aiIdCount++;
   aiPlayers[id] = [];
@@ -442,16 +609,31 @@ function createAiPlayer(name) {
   aiPlayers[id].speedY = 0;
   aiPlayers[id].destinationX = aiPlayers[id].x;
   aiPlayers[id].destinationY = aiPlayers[id].y;
-  aiPlayers[id].name = name ? name : id;
+  aiPlayers[id].name = name ? name : pickAiName();
   aiPlayers[id].direction = 0;
-  aiPlayers[id].character = 0;
-  aiPlayers[id].weapon = "rifle";
+  // 사람처럼 보이도록 캐릭터와 무기를 랜덤으로 고른다
+  aiPlayers[id].character = Math.floor(Math.random() * 100);
+  aiPlayers[id].weapon = aiWeapons[Math.floor(Math.random() * aiWeapons.length)];
   aiPlayers[id].hp = 100.0;
   aiPlayers[id].kill = 0;
   aiPlayers[id].death = 0;
-  aiPlayers[id].fsm = [];
-  aiPlayers[id].fsm.state = "roam"; // chase attack
+  aiPlayers[id].lastShootTime = 0;
+  aiPlayers[id].isLeaving = false;
+  aiPlayers[id].leaveTime =
+    Date.now() +
+    AI_STAY_DURATION_MIN +
+    Math.random() * (AI_STAY_DURATION_MAX - AI_STAY_DURATION_MIN);
+  aiPlayers[id].fsm = {
+    state: "roam", // roam: 배회, chase: 추격/수색, attack: 정지 후 사격
+    targetId: undefined, // 타겟은 객체 참조 대신 id로 보관 (끊긴 유저 추격 방지)
+    lastSeenX: position.x, // 타겟을 마지막으로 목격한 위치
+    lastSeenY: position.y,
+    lastSeenTime: 0,
+    lastRepathTime: 0,
+  };
   aiPlayers.push(id);
+
+  console.log("ai " + id + " (" + aiPlayers[id].name + ") joined");
 
   sendAll("user_connected", {
     id: id,
@@ -463,26 +645,90 @@ function createAiPlayer(name) {
     direction: aiPlayers[id].direction,
     character: aiPlayers[id].character,
     weapon: aiPlayers[id].weapon,
+    kill: aiPlayers[id].kill,
+    death: aiPlayers[id].death,
     hp: 100.0,
   });
+  broadcastUserCount();
 
-  setInterval(function () {
-    aiProcess(aiPlayers[id]);
-  }, 1000 / 60);
+  // 입장 후 잠시 뒤에 가끔 인사를 한다
+  if (Math.random() < AI_GREETING_CHANCE) {
+    setTimeout(function () {
+      if (aiPlayers[id]) {
+        sendAiChat(
+          aiPlayers[id],
+          aiGreetings[Math.floor(Math.random() * aiGreetings.length)]
+        );
+      }
+    }, 1500 + Math.random() * 3000);
+  }
 }
 
-createAiPlayer("Bro");
-createAiPlayer("Ballmer");
-//createAiPlayer("Luck");
+function removeAiPlayer(id) {
+  if (!aiPlayers[id]) {
+    return;
+  }
+  console.log("ai " + id + " (" + aiPlayers[id].name + ") left");
+  delete aiPlayers[id];
+  const index = aiPlayers.indexOf(id);
+  if (index >= 0) {
+    aiPlayers.splice(index, 1);
+  }
+  sendAll("user_disconnected", { id: id });
+  broadcastUserCount();
+}
 
-//createAiPlayer("루리");
-//createAiPlayer("라시");
-//createAiPlayer("살인마");
-//createAiPlayer("제임스");
-//createAiPlayer("후아암");
-//createAiPlayer("바보냥");
-//createAiPlayer("이카");
-//createAiPlayer("후하");
+// 머무는 시간이 끝난 AI를 퇴장시킨다 (가끔 작별 인사 후 잠시 뒤에 나간다)
+function startAiLeave(aiPlayer) {
+  aiPlayer.isLeaving = true;
+  if (Math.random() < AI_FAREWELL_CHANCE) {
+    sendAiChat(
+      aiPlayer,
+      aiFarewells[Math.floor(Math.random() * aiFarewells.length)]
+    );
+  }
+  setTimeout(function () {
+    removeAiPlayer(aiPlayer.id);
+  }, 1000 + Math.random() * 2000);
+}
+
+// 랜덤 간격으로 새 AI 입장 시도
+function scheduleNextAiJoin() {
+  const delay =
+    AI_JOIN_INTERVAL_MIN +
+    Math.random() * (AI_JOIN_INTERVAL_MAX - AI_JOIN_INTERVAL_MIN);
+  setTimeout(function () {
+    if (getAiCount() < AI_MAX_COUNT) {
+      createAiPlayer();
+    }
+    scheduleNextAiJoin();
+  }, delay);
+}
+
+// 서버 시작 시 최소 인원으로 시작하고, 이후 랜덤하게 입퇴장한다
+for (let i = 0; i < AI_MIN_COUNT; i++) {
+  createAiPlayer();
+}
+scheduleNextAiJoin();
+
+// AI 전체를 하나의 루프에서 처리 (봇마다 setInterval을 만들지 않는다)
+setInterval(function () {
+  const now = Date.now();
+  for (let i = 0; i < aiPlayers.length; i++) {
+    const aiPlayer = aiPlayers[aiPlayers[i]];
+    if (aiPlayer) {
+      if (!aiPlayer.isLeaving && now >= aiPlayer.leaveTime) {
+        if (getAiCount() <= AI_MIN_COUNT) {
+          // 방이 너무 비면 잠시 더 머무른다
+          aiPlayer.leaveTime = now + 60 * 1000;
+        } else {
+          startAiLeave(aiPlayer);
+        }
+      }
+      aiProcess(aiPlayer, now);
+    }
+  }
+}, 1000 / 60);
 
 function getPlayersInSight(player, range) {
   function getRayIntersection(ray, segment) {
@@ -632,21 +878,18 @@ function getShootInfo(player, targetPoint) {
   let deviationAngle = 0;
   switch (player.weapon) {
     case "handgun":
-      backDelay = 200;
       muzzleOffsetX = 29;
       muzzleOffsetY = 8;
 
       deviationAngle = (Math.PI / 180) * (1 - Math.random() * 2);
       break;
     case "rifle":
-      backDelay = 50;
       muzzleOffsetX = 38;
       muzzleOffsetY = 6.5;
 
       deviationAngle = (Math.PI / 180) * (2 - Math.random() * 4);
       break;
     case "shotgun":
-      backDelay = 700;
       muzzleOffsetX = 38;
       muzzleOffsetY = 6.5;
       break;
@@ -697,129 +940,331 @@ function getShootInfo(player, targetPoint) {
   };
 }
 
-function aiProcess(aiPlayer) {
-  if (aiPlayer) {
-    const aiCenterX = aiPlayer.x + aiPlayer.width / 2;
-    const aiCenterY = aiPlayer.y + aiPlayer.height / 2;
+// 각도를 [-180, 180] 범위로 정규화 (회전 시 가까운 쪽으로 돌게 하기 위함)
+function normalizeAngleDeg(angle) {
+  angle = angle % 360;
+  if (angle > 180) {
+    angle -= 360;
+  }
+  if (angle < -180) {
+    angle += 360;
+  }
+  return angle;
+}
 
-    const inSightPlayers = getPlayersInSight(aiPlayer, 700);
-    switch (aiPlayer.fsm.state) {
-      case "roam":
-        if (inSightPlayers) {
-          aiPlayer.fsm.state = "attack";
-          aiPlayer.fsm.attackTarget = inSightPlayers[0].target;
-          setDestinationPath(aiPlayer, aiPlayer.fsm.attackTarget);
-        }
-        break;
-      case "attack":
-        var attackTargetVisible = false;
-        if (inSightPlayers) {
-          for (var j = 0; j < inSightPlayers.length; j++) {
-            if (inSightPlayers[j].target.id === aiPlayer.fsm.attackTarget.id) {
-              attackTargetVisible = true;
-              break;
-            }
-          }
-        }
-        if (
-          getDistance(
-            aiCenterX,
-            aiCenterY,
-            aiPlayer.fsm.attackTarget.x,
-            aiPlayer.fsm.attackTarget.y
-          ) > 500 ||
-          !attackTargetVisible
-        ) {
-          setDestinationPath(aiPlayer, aiPlayer.fsm.attackTarget);
-        } else {
-          if (
-            aiPlayer.destinationX !== aiPlayer.x ||
-            aiPlayer.destinationY !== aiPlayer.y
-          ) {
-            aiPlayer.destinationX = aiPlayer.x;
-            aiPlayer.destinationY = aiPlayer.y;
-            aiPlayer.isPathMovingActive = false;
-            aiPlayer.speedX = 0;
-            aiPlayer.speedY = 0;
-            sendAll("user_speed", {
-              id: aiPlayer.id,
-              speedX: aiPlayer.speedX,
-              speedY: aiPlayer.speedY,
-            });
-            sendAll("user_position", {
-              id: aiPlayer.id,
-              x: aiPlayer.x,
-              y: aiPlayer.y,
-            });
-          } else {
-            const newDirectionRadian = Math.atan2(
-              aiPlayer.fsm.attackTarget.y - aiPlayer.y,
-              aiPlayer.fsm.attackTarget.x - aiPlayer.x
-            );
-            const newDirection = (newDirectionRadian / Math.PI) * 180;
-            if (aiPlayer.direction !== newDirection) {
-              const dDirection = newDirection - aiPlayer.direction;
-              if (Math.abs(dDirection) < 10) {
-                aiPlayer.direction = newDirection;
-              } else {
-                aiPlayer.direction += dDirection / 3;
-              }
-              sendAll("user_direction", {
-                id: aiPlayer.id,
-                direction: aiPlayer.direction,
-              });
-            }
-          }
+function turnToward(aiPlayer, targetDirection) {
+  const diff = normalizeAngleDeg(targetDirection - aiPlayer.direction);
+  if (diff === 0) {
+    return;
+  }
+  if (Math.abs(diff) < 6) {
+    aiPlayer.direction = normalizeAngleDeg(targetDirection);
+  } else {
+    aiPlayer.direction = normalizeAngleDeg(aiPlayer.direction + diff / 4);
+  }
+  sendAll("user_direction", {
+    id: aiPlayer.id,
+    direction: aiPlayer.direction,
+  });
+}
 
-          if (
-            !aiPlayer.lastShootTime ||
-            Date.now() - aiPlayer.lastShootTime > 400
-          ) {
-            aiPlayer.lastShootTime = Date.now();
+function stopMoving(aiPlayer) {
+  aiPlayer.destinationX = aiPlayer.x;
+  aiPlayer.destinationY = aiPlayer.y;
+  aiPlayer.isPathMovingActive = false;
+  if (aiPlayer.speedX !== 0 || aiPlayer.speedY !== 0) {
+    aiPlayer.speedX = 0;
+    aiPlayer.speedY = 0;
+    sendAll("user_speed", {
+      id: aiPlayer.id,
+      speedX: aiPlayer.speedX,
+      speedY: aiPlayer.speedY,
+    });
+    sendAll("user_position", {
+      id: aiPlayer.id,
+      x: aiPlayer.x,
+      y: aiPlayer.y,
+    });
+  }
+}
 
-            const shootInfo = getShootInfo(aiPlayer, {
-              x: aiPlayer.fsm.attackTarget.x + aiPlayer.fsm.attackTarget.width / 2 + (Math.random() * 50),
-              y: aiPlayer.fsm.attackTarget.y + aiPlayer.fsm.attackTarget.height / 2 + (Math.random() * 50),
-            });
-            shootProcess(
-              aiPlayer.id,
-              aiPlayer.weapon,
-              "ai",
-              shootInfo.muzzle.x,
-              shootInfo.muzzle.y,
-              shootInfo.target.x,
-              shootInfo.target.y
-            );
-            sendAll("user_shoot", {
-              id: aiPlayer.id,
-              weapon: aiPlayer.weapon,
-              muzzlePoint: shootInfo.muzzle,
-              targetPoint: shootInfo.target,
-              angle: shootInfo.angle,
-            });
-          }
-        }
-        break;
+function resetToRoam(aiPlayer) {
+  aiPlayer.fsm.state = "roam";
+  aiPlayer.fsm.targetId = undefined;
+  stopMoving(aiPlayer);
+}
+
+// id로 타겟을 매번 다시 찾는다. 접속 종료/사망한 타겟은 자연스럽게 무효화된다.
+function resolveTarget(targetId) {
+  if (targetId === undefined) {
+    return undefined;
+  }
+  return clients[targetId] || aiPlayers[targetId];
+}
+
+function pickTarget(inSightPlayers) {
+  if (!inSightPlayers) {
+    return undefined;
+  }
+  // 거리순 정렬되어 있으므로 살아있는 가장 가까운 플레이어 선택
+  for (let i = 0; i < inSightPlayers.length; i++) {
+    if (inSightPlayers[i].target.hp > 0) {
+      return inSightPlayers[i].target;
     }
-    //
+  }
+  return undefined;
+}
 
-    // 이동처리
-    if (
-      aiPlayer.x !== aiPlayer.destinationX ||
-      aiPlayer.y !== aiPlayer.destinationY
-    ) {
-      const distance = getDistance(
-        aiPlayer.x,
-        aiPlayer.y,
-        aiPlayer.destinationX,
-        aiPlayer.destinationY
+function isTargetVisible(inSightPlayers, targetId) {
+  if (!inSightPlayers) {
+    return false;
+  }
+  for (let i = 0; i < inSightPlayers.length; i++) {
+    if (inSightPlayers[i].target.id === targetId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function repathToPoint(aiPlayer, x, y, now) {
+  if (now - aiPlayer.fsm.lastRepathTime < AI_REPATH_INTERVAL) {
+    return;
+  }
+  aiPlayer.fsm.lastRepathTime = now;
+  setDestinationPath(aiPlayer, { x: x, y: y });
+}
+
+// 타겟 반대 방향으로 한 발 물러날 지점을 찾아 이동 (붙어서 겹치는 것 방지)
+function retreatFrom(aiPlayer, threatX, threatY, now) {
+  if (now - aiPlayer.fsm.lastRepathTime < AI_REPATH_INTERVAL) {
+    return;
+  }
+  const centerX = aiPlayer.x + aiPlayer.width / 2;
+  const centerY = aiPlayer.y + aiPlayer.height / 2;
+  const awayAngle = Math.atan2(centerY - threatY, centerX - threatX);
+  const candidateOffsets = [
+    0,
+    Math.PI / 4,
+    -Math.PI / 4,
+    Math.PI / 2,
+    -Math.PI / 2,
+  ];
+  for (let i = 0; i < candidateOffsets.length; i++) {
+    const angle = awayAngle + candidateOffsets[i];
+    const candidateX = centerX + Math.cos(angle) * 128;
+    const candidateY = centerY + Math.sin(angle) * 128;
+    if (isWalkablePosition(candidateX, candidateY)) {
+      aiPlayer.fsm.lastRepathTime = now;
+      setDestinationPath(aiPlayer, { x: candidateX, y: candidateY });
+      return;
+    }
+  }
+}
+
+// 공격받았을 때 시야 밖 공격자에게도 반응하도록 어그로 부여
+function aiAggro(aiPlayer, attackerId) {
+  if (
+    aiPlayer.fsm.state !== "roam" &&
+    resolveTarget(aiPlayer.fsm.targetId) !== undefined
+  ) {
+    return;
+  }
+  const attacker = resolveTarget(attackerId);
+  if (!attacker || attacker.hp <= 0) {
+    return;
+  }
+  const attackerX = attacker.x + attacker.width / 2;
+  const attackerY = attacker.y + attacker.height / 2;
+  aiPlayer.fsm.state = "chase";
+  aiPlayer.fsm.targetId = attackerId;
+  aiPlayer.fsm.lastSeenX = attackerX;
+  aiPlayer.fsm.lastSeenY = attackerY;
+  aiPlayer.fsm.lastSeenTime = Date.now();
+  aiPlayer.fsm.lastRepathTime = 0;
+
+  // 공격받은 방향으로 즉시 돌아본다 (시야각 안에 들어오도록)
+  const centerX = aiPlayer.x + aiPlayer.width / 2;
+  const centerY = aiPlayer.y + aiPlayer.height / 2;
+  aiPlayer.direction = normalizeAngleDeg(
+    (Math.atan2(attackerY - centerY, attackerX - centerX) / Math.PI) * 180
+  );
+  sendAll("user_direction", {
+    id: aiPlayer.id,
+    direction: aiPlayer.direction,
+  });
+}
+
+function aiProcess(aiPlayer, now) {
+  if (!aiPlayer) {
+    return;
+  }
+
+  const centerX = aiPlayer.x + aiPlayer.width / 2;
+  const centerY = aiPlayer.y + aiPlayer.height / 2;
+  const inSightPlayers = getPlayersInSight(aiPlayer, AI_SIGHT_RANGE);
+  const fsm = aiPlayer.fsm;
+
+  switch (fsm.state) {
+    case "roam": {
+      const target = pickTarget(inSightPlayers);
+      if (target) {
+        fsm.state = "chase";
+        fsm.targetId = target.id;
+        fsm.lastSeenX = target.x + target.width / 2;
+        fsm.lastSeenY = target.y + target.height / 2;
+        fsm.lastSeenTime = now;
+        fsm.lastRepathTime = 0;
+      }
+      break;
+    }
+    case "chase": {
+      const target = resolveTarget(fsm.targetId);
+      if (!target || target.hp <= 0) {
+        resetToRoam(aiPlayer);
+        break;
+      }
+      const targetX = target.x + target.width / 2;
+      const targetY = target.y + target.height / 2;
+
+      if (isTargetVisible(inSightPlayers, fsm.targetId)) {
+        fsm.lastSeenX = targetX;
+        fsm.lastSeenY = targetY;
+        fsm.lastSeenTime = now;
+
+        if (getDistance(centerX, centerY, targetX, targetY) <= AI_ATTACK_RANGE) {
+          fsm.state = "attack";
+          stopMoving(aiPlayer);
+          break;
+        }
+        repathToPoint(aiPlayer, targetX, targetY, now);
+      } else {
+        // 시야에서 놓침: 마지막 목격 지점까지 수색하고 그래도 없으면 포기
+        if (
+          now - fsm.lastSeenTime > AI_TARGET_LOST_TIMEOUT ||
+          getDistance(centerX, centerY, fsm.lastSeenX, fsm.lastSeenY) <
+            AI_LAST_SEEN_ARRIVE_DISTANCE
+        ) {
+          resetToRoam(aiPlayer);
+          break;
+        }
+        repathToPoint(aiPlayer, fsm.lastSeenX, fsm.lastSeenY, now);
+      }
+      break;
+    }
+    case "attack": {
+      const target = resolveTarget(fsm.targetId);
+      if (!target || target.hp <= 0) {
+        resetToRoam(aiPlayer);
+        break;
+      }
+      if (!isTargetVisible(inSightPlayers, fsm.targetId)) {
+        fsm.state = "chase";
+        fsm.lastRepathTime = 0;
+        break;
+      }
+      const targetX = target.x + target.width / 2;
+      const targetY = target.y + target.height / 2;
+      fsm.lastSeenX = targetX;
+      fsm.lastSeenY = targetY;
+      fsm.lastSeenTime = now;
+
+      const distance = getDistance(centerX, centerY, targetX, targetY);
+      if (distance > AI_ATTACK_RANGE + AI_ATTACK_RANGE_BUFFER) {
+        fsm.state = "chase";
+        fsm.lastRepathTime = 0;
+        break;
+      }
+
+      if (distance < AI_RETREAT_RANGE) {
+        retreatFrom(aiPlayer, targetX, targetY, now);
+      } else if (!aiPlayer.isPathMovingActive) {
+        stopMoving(aiPlayer);
+      }
+
+      // 사격 중에는 이동 방향이 아니라 타겟을 조준한다
+      const targetDirection =
+        (Math.atan2(targetY - centerY, targetX - centerX) / Math.PI) * 180;
+      turnToward(aiPlayer, targetDirection);
+
+      if (
+        now - aiPlayer.lastShootTime > AI_SHOOT_INTERVAL &&
+        Math.abs(normalizeAngleDeg(targetDirection - aiPlayer.direction)) <
+          AI_SHOOT_FACING_TOLERANCE
+      ) {
+        aiPlayer.lastShootTime = now;
+        const shootInfo = getShootInfo(aiPlayer, {
+          x: targetX + (Math.random() - 0.5) * 24,
+          y: targetY + (Math.random() - 0.5) * 24,
+        });
+        shootProcess(
+          aiPlayer.id,
+          aiPlayer.weapon,
+          "ai",
+          shootInfo.muzzle.x,
+          shootInfo.muzzle.y,
+          shootInfo.target.x,
+          shootInfo.target.y
+        );
+        sendAll("user_shoot", {
+          id: aiPlayer.id,
+          weapon: aiPlayer.weapon,
+          muzzlePoint: shootInfo.muzzle,
+          targetPoint: shootInfo.target,
+          angle: shootInfo.angle,
+        });
+      }
+      break;
+    }
+  }
+
+  aiMove(aiPlayer);
+  applySeparation(aiPlayer);
+}
+
+// 경로 따라가기 + roam 배회
+function aiMove(aiPlayer) {
+  if (
+    aiPlayer.x !== aiPlayer.destinationX ||
+    aiPlayer.y !== aiPlayer.destinationY
+  ) {
+    const distance = getDistance(
+      aiPlayer.x,
+      aiPlayer.y,
+      aiPlayer.destinationX,
+      aiPlayer.destinationY
+    );
+    if (AI_MOVE_SPEED >= distance) {
+      aiPlayer.x = aiPlayer.destinationX;
+      aiPlayer.y = aiPlayer.destinationY;
+
+      aiPlayer.speedX = 0;
+      aiPlayer.speedY = 0;
+      sendAll("user_speed", {
+        id: aiPlayer.id,
+        speedX: aiPlayer.speedX,
+        speedY: aiPlayer.speedY,
+      });
+      sendAll("user_position", {
+        id: aiPlayer.id,
+        x: aiPlayer.x,
+        y: aiPlayer.y,
+      });
+    } else {
+      const moveRadian = Math.atan2(
+        aiPlayer.destinationY - aiPlayer.y,
+        aiPlayer.destinationX - aiPlayer.x
       );
-      if (3 >= distance) {
-        aiPlayer.x = aiPlayer.destinationX;
-        aiPlayer.y = aiPlayer.destinationY;
 
-        aiPlayer.speedX = 0;
-        aiPlayer.speedY = 0;
+      const newSpeedX = Math.cos(moveRadian) * AI_MOVE_SPEED;
+      const newSpeedY = Math.sin(moveRadian) * AI_MOVE_SPEED;
+
+      aiPlayer.x += newSpeedX;
+      aiPlayer.y += newSpeedY;
+
+      if (aiPlayer.speedX !== newSpeedX || aiPlayer.speedY !== newSpeedY) {
+        aiPlayer.speedX = newSpeedX;
+        aiPlayer.speedY = newSpeedY;
         sendAll("user_speed", {
           id: aiPlayer.id,
           speedX: aiPlayer.speedX,
@@ -830,70 +1275,126 @@ function aiProcess(aiPlayer) {
           x: aiPlayer.x,
           y: aiPlayer.y,
         });
+      }
+      // attack 상태에서는 조준이 우선이므로 이동 방향으로 돌리지 않는다
+      if (aiPlayer.fsm.state !== "attack") {
+        turnToward(aiPlayer, (moveRadian / Math.PI) * 180);
+      }
+    }
+  } else {
+    if (aiPlayer.isPathMovingActive) {
+      aiPlayer.currentMovingPathIndex++;
+      if (aiPlayer.currentMovingPathIndex < aiPlayer.movingPath.length) {
+        aiPlayer.destinationX =
+          aiPlayer.movingPath[aiPlayer.currentMovingPathIndex].x;
+        aiPlayer.destinationY =
+          aiPlayer.movingPath[aiPlayer.currentMovingPathIndex].y;
       } else {
-        const newDirectionRadian = Math.atan2(
-          aiPlayer.destinationY - aiPlayer.y,
-          aiPlayer.destinationX - aiPlayer.x
-        );
-        const newDirection = (newDirectionRadian / Math.PI) * 180;
-
-        const newSpeedX = Math.cos(newDirectionRadian) * 3;
-        const newSpeedY = Math.sin(newDirectionRadian) * 3;
-
-        aiPlayer.x += newSpeedX;
-        aiPlayer.y += newSpeedY;
-
-        if (aiPlayer.speedX !== newSpeedX || aiPlayer.speedY !== newSpeedY) {
-          aiPlayer.speedX = newSpeedX;
-          aiPlayer.speedY = newSpeedY;
-          sendAll("user_speed", {
-            id: aiPlayer.id,
-            speedX: aiPlayer.speedX,
-            speedY: aiPlayer.speedY,
-          });
-          sendAll("user_position", {
-            id: aiPlayer.id,
-            x: aiPlayer.x,
-            y: aiPlayer.y,
-          });
-        }
-        if (aiPlayer.direction !== newDirection) {
-          const dDirection = newDirection - aiPlayer.direction;
-          if (Math.abs(dDirection) < 10) {
-            aiPlayer.direction = newDirection;
-          } else {
-            aiPlayer.direction += dDirection / 3;
-          }
+        aiPlayer.isPathMovingActive = false;
+      }
+    } else {
+      if (aiPlayer.fsm.state === "roam") {
+        if (Math.random() < 0.005) {
+          setRandomDestinationPath(aiPlayer);
+        } else {
+          // 제자리에서 천천히 회전하며 주변을 살핀다
+          aiPlayer.direction = normalizeAngleDeg(aiPlayer.direction + 1);
           sendAll("user_direction", {
             id: aiPlayer.id,
             direction: aiPlayer.direction,
           });
         }
       }
+    }
+  }
+}
+
+// 플레이어끼리 겹치지 않게 밀어내는 처리 (AI 본인만 밀려난다)
+function applySeparation(aiPlayer) {
+  let pushX = 0;
+  let pushY = 0;
+  const centerX = aiPlayer.x + aiPlayer.width / 2;
+  const centerY = aiPlayer.y + aiPlayer.height / 2;
+
+  function accumulatePush(other) {
+    if (!other || other.id === aiPlayer.id) {
+      return;
+    }
+    const otherX = other.x + other.width / 2;
+    const otherY = other.y + other.height / 2;
+    const distance = getDistance(centerX, centerY, otherX, otherY);
+    if (distance >= AI_BODY_DISTANCE) {
+      return;
+    }
+    let angle;
+    if (distance < 1) {
+      // 완전히 겹친 경우 방향을 정할 수 없으므로 임의 방향을 정하되,
+      // 매 틱 바꾸면 랜덤워크가 되어 못 빠져나가므로 정한 방향을 유지한다
+      if (aiPlayer.separationEscapeAngle === undefined) {
+        aiPlayer.separationEscapeAngle = Math.random() * Math.PI * 2;
+      }
+      angle = aiPlayer.separationEscapeAngle;
     } else {
-      if (aiPlayer.isPathMovingActive) {
-        aiPlayer.currentMovingPathIndex++;
-        if (aiPlayer.currentMovingPathIndex < aiPlayer.movingPath.length) {
-          aiPlayer.destinationX =
-            aiPlayer.movingPath[aiPlayer.currentMovingPathIndex].x;
-          aiPlayer.destinationY =
-            aiPlayer.movingPath[aiPlayer.currentMovingPathIndex].y;
-        } else {
-          aiPlayer.isPathMovingActive = false;
-        }
-      } else {
-        if (aiPlayer.fsm.state === "roam") {
-          if (Math.random() < 0.005) {
-            setRandomDestinationPath(aiPlayer);
-          } else {
-            aiPlayer.direction += 1;
-            sendAll("user_direction", {
-              id: aiPlayer.id,
-              direction: aiPlayer.direction,
-            });
-          }
-        }
+      angle = Math.atan2(centerY - otherY, centerX - otherX);
+    }
+    const strength = Math.min((AI_BODY_DISTANCE - distance) / 2, 2);
+    pushX += Math.cos(angle) * strength;
+    pushY += Math.sin(angle) * strength;
+  }
+
+  for (let i = 0; i < clients.length; i++) {
+    accumulatePush(clients[clients[i]]);
+  }
+  for (let i = 0; i < aiPlayers.length; i++) {
+    accumulatePush(aiPlayers[aiPlayers[i]]);
+  }
+
+  if (pushX !== 0 || pushY !== 0) {
+    // 밀어내기 전에 판정해야 한다. 밀린 후에는 x !== destinationX 가 되어
+    // 다음 틱에 aiMove 가 봇을 겹친 자리로 도로 끌어당긴다
+    const wasIdle =
+      !aiPlayer.isPathMovingActive &&
+      aiPlayer.x === aiPlayer.destinationX &&
+      aiPlayer.y === aiPlayer.destinationY;
+
+    const newX = aiPlayer.x + pushX;
+    const newY = aiPlayer.y + pushY;
+    if (
+      isWalkablePosition(newX + aiPlayer.width / 2, newY + aiPlayer.height / 2)
+    ) {
+      aiPlayer.x = newX;
+      aiPlayer.y = newY;
+      if (wasIdle) {
+        aiPlayer.destinationX = aiPlayer.x;
+        aiPlayer.destinationY = aiPlayer.y;
+      }
+      sendAll("user_position", {
+        id: aiPlayer.id,
+        x: aiPlayer.x,
+        y: aiPlayer.y,
+      });
+    }
+
+    // 겹친 채 가만히 서 있으면 밀어내기만으로는 느리므로 직접 걸어서 벗어난다
+    if (wasIdle) {
+      const escapeAngle = Math.atan2(pushY, pushX);
+      const escapeX = aiPlayer.x + Math.cos(escapeAngle) * 64;
+      const escapeY = aiPlayer.y + Math.sin(escapeAngle) * 64;
+      if (
+        isWalkablePosition(
+          escapeX + aiPlayer.width / 2,
+          escapeY + aiPlayer.height / 2
+        ) &&
+        isWalkablePosition(
+          aiPlayer.x + Math.cos(escapeAngle) * 32 + aiPlayer.width / 2,
+          aiPlayer.y + Math.sin(escapeAngle) * 32 + aiPlayer.height / 2
+        )
+      ) {
+        aiPlayer.destinationX = escapeX;
+        aiPlayer.destinationY = escapeY;
       }
     }
+  } else {
+    aiPlayer.separationEscapeAngle = undefined;
   }
 }

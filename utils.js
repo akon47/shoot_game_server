@@ -11,7 +11,7 @@ module.exports = {
     c -= 2 * (circle.centerX * p1.x + circle.centerY * p1.y);
     c -= circle.radius * circle.radius;
     bb4ac = b * b - 4 * a * c;
-    if (Math.abs(a) < Math.Epsilon || bb4ac < 0) {
+    if (Math.abs(a) < Number.EPSILON || bb4ac < 0) {
       //  line does not intersect
       return undefined;
     }

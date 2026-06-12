@@ -1,3 +1,9 @@
+"use strict";
+
+// 클라이언트의 맵 데이터를 읽어 길찾기 그리드와 시야 레이캐스트용 세그먼트를 만든다.
+// 주의: 좌표계가 두 가지다 — 길찾기는 타일 단위, 게임 로직은 픽셀 단위.
+// findMapHitBoxes/createSegments 는 클라이언트 map_class.js 와 같은 알고리즘의 서버 사본이다.
+
 const pathFinding = require("pathfinding");
 const mapData = require("../shoot_game/map_office.js").mapData;
 const mapGrid = new pathFinding.Grid(mapData.width, mapData.height);
@@ -6,7 +12,7 @@ const walkablePositions = [];
 for (let y = 0; y < mapData.height; y++) {
   for (let x = 0; x < mapData.width; x++) {
     const walkable = !mapData.wall_tiles.includes(
-      mapData.data[y * mapData.width + x]
+      mapData.data[y * mapData.width + x],
     );
     mapGrid.setWalkableAt(x, y, walkable);
     if (walkable) {
@@ -54,7 +60,7 @@ function createSegments(hitBoxes) {
             a: { x: hitBox.left, y: hitBox.top },
             b: { x: hitBox.left, y: hitBox.bottom },
             valid: true,
-          }
+          },
         );
       }
     }
@@ -79,19 +85,19 @@ function createSegments(hitBoxes) {
               if (interceptYSrc === interceptYDest) {
                 const leftDest = Math.min(
                   tempSegments[j].a.x,
-                  tempSegments[j].b.x
+                  tempSegments[j].b.x,
                 );
                 const topDest = Math.min(
                   tempSegments[j].a.y,
-                  tempSegments[j].b.y
+                  tempSegments[j].b.y,
                 );
                 const rightDest = Math.max(
                   tempSegments[j].a.x,
-                  tempSegments[j].b.x
+                  tempSegments[j].b.x,
                 );
                 const bottomDest = Math.max(
                   tempSegments[j].a.y,
-                  tempSegments[j].b.y
+                  tempSegments[j].b.y,
                 );
 
                 if (
@@ -249,8 +255,8 @@ module.exports = {
           Math.floor(npc.x / mapData.tile_width),
           Math.floor(npc.y / mapData.tile_height),
           target.x,
-          target.y
-        )
+          target.y,
+        ),
       );
 
       npc.movingPath = [];
@@ -290,8 +296,8 @@ module.exports = {
           Math.floor(npc.x / mapData.tile_width),
           Math.floor(npc.y / mapData.tile_height),
           Math.floor(target.x / mapData.tile_width),
-          Math.floor(target.y / mapData.tile_height)
-        )
+          Math.floor(target.y / mapData.tile_height),
+        ),
       );
 
       npc.movingPath = [];

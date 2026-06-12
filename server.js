@@ -20,6 +20,7 @@ const combat = require("./combat");
 const ai = require("./ai");
 const items = require("./items");
 const rounds = require("./rounds");
+const mapHelper = require("./map-helper");
 
 const wss = require("./websocket-server")(config.PORT);
 
@@ -51,11 +52,16 @@ wss.on("connection", function connection(ws) {
   state.clients[id] = client;
   state.clients.push(id);
 
-  // 접속 직후 스냅샷 전송
-  net.sendTo(client, "id", id);
+  // 접속 직후 스냅샷 전송.
+  // round_info(현재 맵 포함)를 id보다 먼저 보내야 클라이언트가
+  // 올바른 맵 위에서 첫 스폰(user_init)을 한다.
+  net.sendTo(client, "round_info", {
+    remainMs: rounds.getRemainMs(),
+    map: mapHelper.getActiveMapName(),
+  });
   net.sendTo(client, "user_chat_history", chatStore.getRecentChats());
   net.sendTo(client, "item_list", items.getItemsSnapshot());
-  net.sendTo(client, "round_info", { remainMs: rounds.getRemainMs() });
+  net.sendTo(client, "id", id);
 
   ws.on("message", function incoming(message) {
     let msg;
@@ -235,6 +241,12 @@ function handleMessage(client, msg, rawMessage) {
       break;
   }
 }
+
+// 라운드가 끝나 활성 맵이 바뀌면 AI와 아이템을 새 맵 위로 재배치한다
+rounds.onRoundEnd(function () {
+  ai.resetForNewMap();
+  items.resetForNewMap();
+});
 
 // 서브시스템 시작
 ai.start();

@@ -107,6 +107,10 @@ module.exports = {
 
   // 라운드/킬스트릭
   ROUND_DURATION: 10 * 60 * 1000, // 라운드 길이(ms)
+  // 라운드마다 순환하는 맵 목록. ../shoot_game/map_{name}.js 파일과
+  // 클라이언트 map_registry.js 의 키 이름이 일치해야 한다.
+  // 첫 번째 항목이 서버 시작 시 활성 맵이며, 클라이언트 DEFAULT_MAP_NAME 과 같아야 한다.
+  MAP_ROTATION: ["office", "arena", "ruins"],
   // 공지를 보내는 연속 킬 수. 공지 문구는 클라이언트 locale_class.js 가
   // 현재 언어로 렌더링한다 (killstreak_{n} 키 — 양쪽 같이 수정)
   KILLSTREAK_MILESTONES: [3, 5, 7, 10],

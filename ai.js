@@ -13,7 +13,7 @@ const {
   setRandomDestinationPath,
   setDestinationPath,
   isWalkablePosition,
-  mapSegments,
+  getMapSegments,
 } = require("./map-helper");
 const {
   getDistance,
@@ -276,6 +276,7 @@ function getPlayersInSight(player, range) {
     }
 
     // 후보 방향으로 레이를 쏘아 가장 가까운 벽보다 후보가 가까우면 보인다
+    const mapSegments = getMapSegments();
     const ray = {
       a: { x: rayX, y: rayY },
       b: { x: rayX + Math.cos(angle), y: rayY + Math.sin(angle) },
@@ -751,6 +752,13 @@ function applySeparation(aiPlayer) {
   }
 }
 
+// 라운드 맵 교체 시 모든 봇을 새 활성 맵 위로 리스폰시킨다 (rounds 의 onRoundEnd 훅)
+function resetForNewMap() {
+  state.forEachPlayer(aiPlayers, function (aiPlayer) {
+    respawnAiPlayer(aiPlayer);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 시작
 // ---------------------------------------------------------------------------
@@ -781,4 +789,5 @@ function start() {
 
 module.exports = {
   start,
+  resetForNewMap,
 };

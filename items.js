@@ -103,6 +103,18 @@ function checkItemPickups() {
   }
 }
 
+// 라운드 맵 교체 시 모든 아이템을 회수하고 새 활성 맵 위에 다시 깐다 (rounds 의 onRoundEnd 훅)
+function resetForNewMap() {
+  const itemIds = Object.keys(items);
+  for (let i = 0; i < itemIds.length; i++) {
+    delete items[itemIds[i]];
+  }
+  net.sendAll("item_list", []);
+  for (let i = 0; i < config.ITEM_INITIAL_COUNT; i++) {
+    spawnItem();
+  }
+}
+
 // 서버 시작 시 일부 아이템을 미리 깔아두고, 이후 랜덤 간격으로 보충한다
 function start() {
   for (let i = 0; i < config.ITEM_INITIAL_COUNT; i++) {
@@ -115,4 +127,5 @@ function start() {
 module.exports = {
   start,
   getItemsSnapshot,
+  resetForNewMap,
 };

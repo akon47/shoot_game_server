@@ -1,27 +1,65 @@
 "use strict";
 
-// 클라이언트의 맵 데이터를 읽어 길찾기 그리드와 시야 레이캐스트용 세그먼트를 만든다.
+// 클라이언트의 맵 데이터(map_*.js)를 전부 읽어 맵별 길찾기 그리드와
+// 시야 레이캐스트용 세그먼트를 만들고, 라운드 로테이션에 따라 "활성 맵"을 전환한다.
 // 주의: 좌표계가 두 가지다 — 길찾기는 타일 단위, 게임 로직은 픽셀 단위.
 // findMapHitBoxes/createSegments 는 클라이언트 map_class.js 와 같은 알고리즘의 서버 사본이다.
 
 const pathFinding = require("pathfinding");
-const mapData = require("../shoot_game/map_office.js").mapData;
-const mapGrid = new pathFinding.Grid(mapData.width, mapData.height);
-const walkablePositions = [];
+const config = require("./config");
 
-for (let y = 0; y < mapData.height; y++) {
-  for (let x = 0; x < mapData.width; x++) {
-    const walkable = !mapData.wall_tiles.includes(
-      mapData.data[y * mapData.width + x],
-    );
-    mapGrid.setWalkableAt(x, y, walkable);
-    if (walkable) {
-      walkablePositions.push({ x: x, y: y });
-    }
-  }
+// config.MAP_ROTATION 의 이름으로 ../shoot_game/map_{name}.js 를 읽는다
+const maps = {};
+for (let i = 0; i < config.MAP_ROTATION.length; i++) {
+  const name = config.MAP_ROTATION[i];
+  maps[name] = buildMap(name);
 }
 
-const mapSegments = createSegments(findMapHitBoxes());
+let activeMapName = config.MAP_ROTATION[0];
+
+function buildMap(name) {
+  const mapData = require("../shoot_game/map_" + name + ".js").mapData;
+
+  const grid = new pathFinding.Grid(mapData.width, mapData.height);
+  const walkablePositions = [];
+  for (let y = 0; y < mapData.height; y++) {
+    for (let x = 0; x < mapData.width; x++) {
+      const walkable = !mapData.wall_tiles.includes(
+        mapData.data[y * mapData.width + x],
+      );
+      grid.setWalkableAt(x, y, walkable);
+      if (walkable) {
+        walkablePositions.push({ x: x, y: y });
+      }
+    }
+  }
+
+  const segments = createSegments(findMapHitBoxes(mapData));
+  console.log(
+    "map loaded: " +
+      name +
+      " (" +
+      mapData.width +
+      "x" +
+      mapData.height +
+      ", walkable " +
+      walkablePositions.length +
+      ", segments " +
+      segments.length +
+      ")",
+  );
+
+  return {
+    mapData: mapData,
+    grid: grid,
+    walkablePositions: walkablePositions,
+    segments: segments,
+  };
+}
+
+function getActiveMap() {
+  return maps[activeMapName];
+}
 
 function createSegments(hitBoxes) {
   function getSlope(segment) {
@@ -34,10 +72,10 @@ function createSegments(hitBoxes) {
     }
   }
 
-  var segments = [];
+  const segments = [];
   if (hitBoxes) {
-    var tempSegments = [];
-    for (var i = 0; i < hitBoxes.length; i++) {
+    const tempSegments = [];
+    for (let i = 0; i < hitBoxes.length; i++) {
       const hitBox = hitBoxes[i];
       if (hitBox) {
         tempSegments.push(
@@ -65,7 +103,7 @@ function createSegments(hitBoxes) {
       }
     }
 
-    for (var i = 0; i < tempSegments.length; i++) {
+    for (let i = 0; i < tempSegments.length; i++) {
       if (tempSegments[i].valid) {
         const slopeSrc = getSlope(tempSegments[i]);
         const interceptYSrc =
@@ -75,7 +113,7 @@ function createSegments(hitBoxes) {
         const rightSrc = Math.max(tempSegments[i].a.x, tempSegments[i].b.x);
         const bottomSrc = Math.max(tempSegments[i].a.y, tempSegments[i].b.y);
 
-        for (var j = 0; j < tempSegments.length; j++) {
+        for (let j = 0; j < tempSegments.length; j++) {
           if (i !== j && tempSegments[j].valid) {
             // tempSegments[i] 안에 tempSegments[j] 가 포함되는지 검사 후 valid 체크
             const slopeDest = getSlope(tempSegments[j]);
@@ -119,7 +157,7 @@ function createSegments(hitBoxes) {
       }
     }
 
-    for (var i = 0; i < tempSegments.length; i++) {
+    for (let i = 0; i < tempSegments.length; i++) {
       if (tempSegments[i].valid) {
         segments.push(tempSegments[i]);
       }
@@ -128,14 +166,14 @@ function createSegments(hitBoxes) {
   return segments;
 }
 
-function findMapHitBoxes() {
+function findMapHitBoxes(mapData) {
   function isWall(x, y) {
     return mapData.wall_tiles.includes(mapData.data[y * mapData.width + x]);
   }
 
   function findLeftTopRight(findedHitbox) {
     function containsHitboxs(x, y) {
-      for (var i = 0; i < findedHitbox.length; i++) {
+      for (let i = 0; i < findedHitbox.length; i++) {
         if (
           x >= findedHitbox[i].left &&
           x <= findedHitbox[i].right &&
@@ -148,23 +186,19 @@ function findMapHitBoxes() {
       return false;
     }
 
-    for (var y = 0; y < mapData.height; y++) {
-      for (var x = 0; x < mapData.width; x++) {
+    for (let y = 0; y < mapData.height; y++) {
+      for (let x = 0; x < mapData.width; x++) {
         if (!containsHitboxs(x, y) && isWall(x, y)) {
           const left = x;
-          const top = y;
-          for (var r = x + 1; r < mapData.width; r++) {
+          for (let r = x + 1; r < mapData.width; r++) {
             if (containsHitboxs(r, y) || !isWall(r, y)) {
               return { left: x, top: y, right: r - 1 };
             }
 
-            //////////////////////////////////// 최대 가로 32 블럭으로 제한
-            else {
-              if (r - 1 - left >= 32) {
-                return { left: x, top: y, right: r - 1 };
-              }
+            // 최대 가로 32 블럭으로 제한
+            if (r - 1 - left >= 32) {
+              return { left: x, top: y, right: r - 1 };
             }
-            /////////////////////////////////////
           }
           return { left: x, top: y, right: mapData.width - 1 };
         }
@@ -174,24 +208,23 @@ function findMapHitBoxes() {
   }
 
   function findBottom(leftTopRight) {
-    for (var y = leftTopRight.top + 1; y < mapData.height; y++) {
-      for (var x = leftTopRight.left; x <= leftTopRight.right; x++) {
+    for (let y = leftTopRight.top + 1; y < mapData.height; y++) {
+      for (let x = leftTopRight.left; x <= leftTopRight.right; x++) {
         if (!isWall(x, y)) {
           return y - 1;
         }
       }
 
-      //////////////////////////////////// 최대 세로 32 블럭으로 제한
+      // 최대 세로 32 블럭으로 제한
       if (y - 1 - leftTopRight.top >= 32) {
         return y - 1;
       }
-      /////////////////////////////////////
     }
     return mapData.height - 1;
   }
 
-  var findedHitbox = [];
-  var result = [];
+  const findedHitbox = [];
+  const result = [];
   while (true) {
     const leftTopRight = findLeftTopRight(findedHitbox);
     if (leftTopRight) {
@@ -222,98 +255,100 @@ function findMapHitBoxes() {
   return result;
 }
 
-var pathFinder = new pathFinding.AStarFinder({
+const pathFinder = new pathFinding.AStarFinder({
   allowDiagonal: true,
   dontCrossCorners: true,
 });
 
-const findPath = (startX, startY, endX, endY) => {
-  return pathFinder.findPath(startX, startY, endX, endY, mapGrid.clone());
-};
+// A* 가 그리드를 변형하므로 매번 clone 을 사용한다
+function findPath(map, startX, startY, endX, endY) {
+  return pathFinder.findPath(startX, startY, endX, endY, map.grid.clone());
+}
+
+function applyPath(npc, map, path) {
+  npc.movingPath = [];
+  for (let i = 1; i < path.length; i++) {
+    npc.movingPath.push({
+      x: path[i][0] * map.mapData.tile_width,
+      y: path[i][1] * map.mapData.tile_height,
+    });
+  }
+  npc.currentMovingPathIndex = 0;
+  npc.isPathMovingActive = true;
+
+  if (npc.movingPath.length > 0) {
+    npc.destinationX = npc.movingPath[0].x;
+    npc.destinationY = npc.movingPath[0].y;
+  }
+}
 
 module.exports = {
+  setActiveMap: (name) => {
+    if (maps[name]) {
+      activeMapName = name;
+    }
+  },
+  getActiveMapName: () => activeMapName,
+  getMapSegments: () => getActiveMap().segments,
   getWalkableRandomPosition: () => {
+    const map = getActiveMap();
     const point =
-      walkablePositions[
-        Math.floor(Math.random() * walkablePositions.length) %
-          walkablePositions.length
+      map.walkablePositions[
+        Math.floor(Math.random() * map.walkablePositions.length) %
+          map.walkablePositions.length
       ];
     return {
-      x: point.x * mapData.tile_width,
-      y: point.y * mapData.tile_height,
+      x: point.x * map.mapData.tile_width,
+      y: point.y * map.mapData.tile_height,
     };
   },
   setRandomDestinationPath: (npc) => {
     if (npc) {
+      const map = getActiveMap();
       const target =
-        walkablePositions[
-          Math.floor(Math.random() * walkablePositions.length) %
-            walkablePositions.length
+        map.walkablePositions[
+          Math.floor(Math.random() * map.walkablePositions.length) %
+            map.walkablePositions.length
         ];
       const path = pathFinding.Util.compressPath(
         findPath(
-          Math.floor(npc.x / mapData.tile_width),
-          Math.floor(npc.y / mapData.tile_height),
+          map,
+          Math.floor(npc.x / map.mapData.tile_width),
+          Math.floor(npc.y / map.mapData.tile_height),
           target.x,
           target.y,
         ),
       );
-
-      npc.movingPath = [];
-      for (let i = 0; i < path.length; i++) {
-        npc.movingPath.push({
-          x: path[i][0] * mapData.tile_width,
-          y: path[i][1] * mapData.tile_height,
-        });
-      }
-      npc.currentMovingPathIndex = 0;
-      npc.isPathMovingActive = true;
-
-      if (npc.movingPath.length > 0) {
-        npc.destinationX = npc.movingPath[0].x;
-        npc.destinationY = npc.movingPath[0].y;
-      }
+      applyPath(npc, map, path);
     }
-  },
-  mapSegments: mapSegments,
-  isWalkablePosition: (pixelX, pixelY) => {
-    const tileX = Math.floor(pixelX / mapData.tile_width);
-    const tileY = Math.floor(pixelY / mapData.tile_height);
-    if (
-      tileX < 0 ||
-      tileY < 0 ||
-      tileX >= mapData.width ||
-      tileY >= mapData.height
-    ) {
-      return false;
-    }
-    return mapGrid.isWalkableAt(tileX, tileY);
   },
   setDestinationPath: (npc, target) => {
     if (npc && target) {
+      const map = getActiveMap();
       const path = pathFinding.Util.compressPath(
         findPath(
-          Math.floor(npc.x / mapData.tile_width),
-          Math.floor(npc.y / mapData.tile_height),
-          Math.floor(target.x / mapData.tile_width),
-          Math.floor(target.y / mapData.tile_height),
+          map,
+          Math.floor(npc.x / map.mapData.tile_width),
+          Math.floor(npc.y / map.mapData.tile_height),
+          Math.floor(target.x / map.mapData.tile_width),
+          Math.floor(target.y / map.mapData.tile_height),
         ),
       );
-
-      npc.movingPath = [];
-      for (let i = 1; i < path.length; i++) {
-        npc.movingPath.push({
-          x: path[i][0] * mapData.tile_width,
-          y: path[i][1] * mapData.tile_height,
-        });
-      }
-      npc.currentMovingPathIndex = 0;
-      npc.isPathMovingActive = true;
-
-      if (npc.movingPath.length > 0) {
-        npc.destinationX = npc.movingPath[0].x;
-        npc.destinationY = npc.movingPath[0].y;
-      }
+      applyPath(npc, map, path);
     }
+  },
+  isWalkablePosition: (pixelX, pixelY) => {
+    const map = getActiveMap();
+    const tileX = Math.floor(pixelX / map.mapData.tile_width);
+    const tileY = Math.floor(pixelY / map.mapData.tile_height);
+    if (
+      tileX < 0 ||
+      tileY < 0 ||
+      tileX >= map.mapData.width ||
+      tileY >= map.mapData.height
+    ) {
+      return false;
+    }
+    return map.grid.isWalkableAt(tileX, tileY);
   },
 };

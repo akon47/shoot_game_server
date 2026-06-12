@@ -7,9 +7,18 @@
 const config = require("./config");
 const state = require("./state");
 const net = require("./net");
+const mapHelper = require("./map-helper");
 
 let roundEndTime = Date.now() + config.ROUND_DURATION;
 let roundInfoTickCounter = 0;
+let mapRotationIndex = 0;
+
+// 라운드 종료(맵 교체 후)에 호출할 훅. ai/items 와의 순환 의존을 피하기 위해
+// server.js 가 등록한다 (AI 리스폰, 아이템 재배치 등)
+const roundEndCallbacks = [];
+function onRoundEnd(callback) {
+  roundEndCallbacks.push(callback);
+}
 
 function getDisplayName(player) {
   return player.name && player.name.trim() ? player.name : player.id;
@@ -38,7 +47,10 @@ function getRemainMs() {
 }
 
 function broadcastRoundInfo() {
-  net.sendAll("round_info", { remainMs: getRemainMs() });
+  net.sendAll("round_info", {
+    remainMs: getRemainMs(),
+    map: mapHelper.getActiveMapName(),
+  });
 }
 
 function endRound() {
@@ -71,6 +83,16 @@ function endRound() {
   state.forEachPlayer(state.clients, resetRecord);
   state.forEachPlayer(state.aiPlayers, resetRecord);
 
+  // 다음 맵으로 교체 후 훅 실행 (AI 리스폰, 아이템 재배치).
+  // 클라이언트는 직후의 round_info 브로드캐스트로 새 맵을 알고 스스로 리스폰한다.
+  mapRotationIndex = (mapRotationIndex + 1) % config.MAP_ROTATION.length;
+  const nextMapName = config.MAP_ROTATION[mapRotationIndex];
+  mapHelper.setActiveMap(nextMapName);
+  net.sendServerNotice("map_changed", { name: nextMapName });
+  for (let i = 0; i < roundEndCallbacks.length; i++) {
+    roundEndCallbacks[i]();
+  }
+
   net.sendServerNotice("round_start", {
     minutes: config.ROUND_DURATION / 60000,
   });
@@ -98,4 +120,5 @@ module.exports = {
   start,
   getRemainMs,
   announceKill,
+  onRoundEnd,
 };

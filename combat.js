@@ -93,11 +93,23 @@ function shootProcess(
   state.forEachPlayer(state.aiPlayers, function (aiPlayer) {
     considerTarget(aiPlayer, "ai");
   });
+  // PvE 몬스터도 탄도 위에 있으면 피격 대상이 된다
+  state.forEachPlayer(state.monsters, function (monster) {
+    considerTarget(monster, "monster");
+  });
 
   if (hitObject && hitObjectType) {
     const damage = config.WEAPON_DAMAGE[weapon];
     if (damage) {
-      applyDamage(hitObject, damage, provider, id, weapon);
+      if (hitObjectType === "monster") {
+        // 몬스터 피격은 monsters.js 가 설정한 훅으로 위임한다(monster_* 프로토콜·킬 크레딧).
+        // combat 은 monsters 모듈을 require 하지 않는다(순환 의존 회피).
+        if (hitObject.takeDamage) {
+          hitObject.takeDamage(damage, id);
+        }
+      } else {
+        applyDamage(hitObject, damage, provider, id, weapon);
+      }
     }
   }
 }
@@ -296,6 +308,7 @@ module.exports = {
   grantSpawnProtection,
   shootProcess,
   meleeAttackProcess,
+  applyDamage, // monsters.js 의 접촉 공격이 플레이어에게 데미지를 줄 때 사용
   getShootInfo,
   getPelletTargetPoints,
 };

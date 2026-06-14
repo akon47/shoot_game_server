@@ -58,6 +58,7 @@ ws.on("message", function (raw) {
         "id",
         "user_chat_history",
         "item_list",
+        "monster_list",
         "round_info",
         "user_connected",
         "user_shoot",
@@ -88,6 +89,9 @@ ws.on("message", function (raw) {
   }
   if (msg.type === "item_list") {
     console.log("[item_list] count =", msg.data.length);
+  }
+  if (msg.type === "monster_list") {
+    console.log("[monster_list] count =", msg.data.length);
   }
   if (msg.type === "round_info") {
     console.log("[round_info] remainMs =", msg.data.remainMs);

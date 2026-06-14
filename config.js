@@ -105,6 +105,30 @@ module.exports = {
   ITEM_PICKUP_DISTANCE: 28, // 아이템 획득 판정 거리(px)
   ITEM_MEDKIT_HEAL: 50, // 메드킷 회복량
 
+  // PvE 침공(스켈레톤 떼). 몬스터는 100% 서버 권위이며 monster_* 프로토콜로 전파한다.
+  // 클라이언트는 보관/렌더링만 한다(item 과 동일). 동일 값 동기화가 필요한 상수 없음.
+  MONSTER_HP: 60, // 스켈레톤 1마리 체력
+  MONSTER_MOVE_SPEED: 3.5, // 몬스터 루프(30fps) 틱당 이동량(px). 봇(60fps·3px)보다 느리게
+  MONSTER_SIGHT_RANGE: 1400, // 추격 대상 탐지 거리(px). 벽 무시(냄새로 추적), 경로는 A* 로 우회
+  MONSTER_ATTACK_RANGE: 46, // 접촉 공격 사거리(중심 간 거리, px)
+  MONSTER_ATTACK_DAMAGE: 8, // 접촉 공격 1회 데미지
+  MONSTER_ATTACK_INTERVAL: 800, // 접촉 공격 쿨다운(ms)
+  MONSTER_REPATH_INTERVAL: 500, // 추격 경로 재계산 최소 간격(ms)
+  MONSTER_BODY_DISTANCE: 26, // 몬스터끼리 유지하는 최소 중심 거리(px)
+  MONSTER_SPAWN_MIN_DISTANCE: 360, // 스폰 시 살아있는 플레이어와 최소 거리(px)
+  MONSTER_KILL_SCORE: 1, // 몬스터 처치 시 킬 점수 가산량(리더보드/킬스트릭 반영)
+
+  // 침공 디렉터: 일정 간격마다 사이렌 후 웨이브로 몬스터를 풀어놓는다
+  INVASION_INTERVAL_MIN: 3 * 60 * 1000, // 다음 침공까지 최소 간격(ms)
+  INVASION_INTERVAL_MAX: 5 * 60 * 1000, // 다음 침공까지 최대 간격(ms)
+  INVASION_WARN_DELAY: 5 * 1000, // 사이렌 공지 후 첫 등장까지(ms)
+  INVASION_DURATION_MAX: 100 * 1000, // 미처치 시 강제 종료까지(ms)
+  INVASION_WAVES: 3, // 한 침공당 웨이브 수
+  INVASION_WAVE_INTERVAL: 14 * 1000, // 웨이브 사이 간격(ms)
+  INVASION_BASE_COUNT: 4, // 웨이브당 기본 마릿수
+  INVASION_PER_COMBATANT: 1, // 전투원(사람+봇) 1명당 추가 마릿수
+  INVASION_MAX_ALIVE: 28, // 동시 생존 몬스터 상한
+
   // 라운드/킬스트릭
   ROUND_DURATION: 10 * 60 * 1000, // 라운드 길이(ms)
   // 라운드마다 순환하는 맵 목록. ../shoot_game/map_{name}.js 파일과

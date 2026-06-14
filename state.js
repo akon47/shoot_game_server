@@ -9,6 +9,10 @@
 
 const clients = [];
 const aiPlayers = [];
+// PvE 몬스터(스켈레톤). clients/aiPlayers 와 같은 "배열을 맵처럼 쓰는" 컬렉션이다.
+// 사람/봇 플레이어와 분리해 두어, 사격 판정·봇 타겟팅에는 후보로 넣되
+// resolvePlayer(킬 크레딧 대상)에는 섞이지 않게 한다(몬스터가 킬을 가져가면 안 됨).
+const monsters = [];
 
 // 컬렉션의 살아있는 항목만 순회한다 (undefined 체크 포함)
 function forEachPlayer(collection, callback) {
@@ -39,6 +43,7 @@ function resolvePlayer(id) {
 module.exports = {
   clients,
   aiPlayers,
+  monsters,
   userCount: 0, // 실제 접속 유저 수 (AI 제외)
   forEachPlayer,
   countPlayers,

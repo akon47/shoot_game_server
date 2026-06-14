@@ -24,6 +24,12 @@ const {
 const aiPlayers = state.aiPlayers;
 let aiIdCount = 0;
 
+// 봇의 타겟은 사람/봇뿐 아니라 PvE 몬스터도 될 수 있다("봇도 함께 싸움").
+// resolvePlayer 는 몬스터를 제외하므로(킬 크레딧 보호) 여기서 몬스터까지 확인한다.
+function resolveTarget(id) {
+  return state.resolvePlayer(id) || state.monsters[id];
+}
+
 // ---------------------------------------------------------------------------
 // 입퇴장 (인구 관리)
 // ---------------------------------------------------------------------------
@@ -262,6 +268,7 @@ function getPlayersInSight(player, range) {
   }
   state.forEachPlayer(state.clients, addCandidate);
   state.forEachPlayer(aiPlayers, addCandidate);
+  state.forEachPlayer(state.monsters, addCandidate);
 
   let result = [];
   for (let j = 0; j < candidates.length; j++) {
@@ -423,11 +430,11 @@ function retreatFrom(aiPlayer, threatX, threatY, now) {
 function aiAggro(aiPlayer, attackerId) {
   if (
     aiPlayer.fsm.state !== "roam" &&
-    state.resolvePlayer(aiPlayer.fsm.targetId) !== undefined
+    resolveTarget(aiPlayer.fsm.targetId) !== undefined
   ) {
     return;
   }
-  const attacker = state.resolvePlayer(attackerId);
+  const attacker = resolveTarget(attackerId);
   if (!attacker || attacker.hp <= 0) {
     return;
   }
@@ -472,7 +479,7 @@ function aiProcess(aiPlayer, now) {
       break;
     }
     case "chase": {
-      const target = state.resolvePlayer(fsm.targetId);
+      const target = resolveTarget(fsm.targetId);
       if (!target || target.hp <= 0) {
         resetToRoam(aiPlayer);
         break;
@@ -509,7 +516,7 @@ function aiProcess(aiPlayer, now) {
       break;
     }
     case "attack": {
-      const target = state.resolvePlayer(fsm.targetId);
+      const target = resolveTarget(fsm.targetId);
       if (!target || target.hp <= 0) {
         resetToRoam(aiPlayer);
         break;

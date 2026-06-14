@@ -19,6 +19,7 @@ const chatStore = require("./chat-store");
 const combat = require("./combat");
 const ai = require("./ai");
 const items = require("./items");
+const monsters = require("./monsters");
 const rounds = require("./rounds");
 const mapHelper = require("./map-helper");
 
@@ -61,6 +62,7 @@ wss.on("connection", function connection(ws) {
   });
   net.sendTo(client, "user_chat_history", chatStore.getRecentChats());
   net.sendTo(client, "item_list", items.getItemsSnapshot());
+  net.sendTo(client, "monster_list", monsters.getMonstersSnapshot());
   net.sendTo(client, "id", id);
 
   ws.on("message", function incoming(message) {
@@ -242,13 +244,16 @@ function handleMessage(client, msg, rawMessage) {
   }
 }
 
-// 라운드가 끝나 활성 맵이 바뀌면 AI와 아이템을 새 맵 위로 재배치한다
+// 라운드가 끝나 활성 맵이 바뀌면 AI와 아이템을 새 맵 위로 재배치하고
+// 진행 중이던 침공은 중단·정리한다(몬스터는 이전 맵 좌표계라 새 맵에 둘 수 없다)
 rounds.onRoundEnd(function () {
   ai.resetForNewMap();
   items.resetForNewMap();
+  monsters.resetForNewMap();
 });
 
 // 서브시스템 시작
 ai.start();
 items.start();
+monsters.start();
 rounds.start();
